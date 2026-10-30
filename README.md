@@ -106,6 +106,34 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 | **Nginx** | 已经有 Nginx 在跑 | `examples/nginx.conf`，记得关 SSE 缓冲 |
 | **Cloudflare Tunnel / frp / Tailscale** | 没公网 IP、不想开端口 | 隧道给一个受信 https 域名 |
 
+### 先解决证书：有公网 IP 但没有受信任证书
+
+**Let's Encrypt 不给 IP 签证书**，所以先要一个域名（免费的也行：DuckDNS 的 `xxx.duckdns.org`、
+或者几块钱一年的 `.xyz`）。而且**访问地址必须用这个域名**——用 `https://1.2.3.4:8443` 会因为
+证书域名对不上，被 Java 直接拒绝。
+
+三条路，按「有没有 80 端口入站」挑：
+
+| 情况 | 做法 |
+| --- | --- |
+| 域名已解析到公网 IP，**80 端口可达** | `acme.sh --issue --standalone -d party.example.com`（或 `certbot certonly --standalone -d ...`） |
+| **80 被封 / 被占用**（家用宽带常见） | DNS-01 验证，不占端口：`CF_Token=xxx acme.sh --issue --dns dns_cf -d party.example.com`；DuckDNS 用 `--dns dns_duckdns` |
+| 不想买域名，也不想开端口 | 用隧道：`tailscale funnel --bg 8787`（给一个 `*.ts.net` 的受信 https，443 由 Tailscale 终止），或 Cloudflare Tunnel（需要一个托管在 Cloudflare 的域名） |
+
+拿到证书后起服务：
+
+```bash
+# acme.sh 的产物在 ~/.acme.sh/<域名>/
+TLS_CERT=/root/.acme.sh/party.example.com/fullchain.cer \
+TLS_KEY=/root/.acme.sh/party.example.com/party.example.com.key \
+HOST=0.0.0.0 PORT=8443 node server.mjs
+```
+
+客户端 `relayUrl=https://party.example.com:8443`（走隧道的话通常是 `https://xxx.ts.net`，不用带端口）。
+
+别用自签证书：客户端是 Java，默认不信任自签 CA，除非给每台玩家的 JVM 导入证书（`keytool -importcert`），
+不值得。
+
 ### 方案 A：让 server.mjs 自己上 TLS（不用反代）
 
 ```bash
