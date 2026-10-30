@@ -56,16 +56,18 @@ relayUrl=https://...           # 真正的请求地址；留空则直连 databas
 node server.mjs                 # 监听 127.0.0.1:8787
 ```
 
-客户端 `config/dangomusic/firebase.properties`：
+启动时会自动生成一份**样例配置**（含随机 apiKey）在 `data/firebase.properties.example`
+（只生成一次，之后不会覆盖；地址是占位符）。复制成 `firebase.properties`，把地址改成下面这样：
 
 ```properties
-apiKey=local-party
+apiKey=dango-xxxxxxxxxxxx      # 见启动日志 / data/apikey.txt / 样例文件
 databaseUrl=https://127.0.0.1:8787
 relayUrl=http://127.0.0.1:8787
 ```
 
 说明：`relayUrl` 走 `http://127.0.0.1`（客户端只对 127.0.0.1 / localhost 放行 http）；
 `databaseUrl` 只要以 `https://` 开头即可，实际不会用到它。
+想用固定口令 `apiKey=local-party`，启动时加 `PARTY_KEY=local-party`；想完全关掉校验就 `PARTY_KEY=none`。
 
 注意：别的电脑连不上 `127.0.0.1`；要给朋友用必须换下面任一方案。
 
@@ -232,28 +234,23 @@ relayUrl=https://party.example.com
 
 ## 2.7 Tailscale Funnel（零证书、零端口、不用域名）
 
-前提：服务器装 Tailscale 并登录；管理台给节点开 Funnel（Access controls 的 `funnel` 属性）。
+**完整步骤（准备 / Windows·Linux 命令 / 验证 / 排错）写在 README 的
+「用 Tailscale Funnel 部署（保姆级）」一节**，这里只记和本项目相关、容易踩的点：
 
-```bash
-tailscale up
-sudo tailscale funnel --bg 8787      # 把本机 8787 暴露成 https://<机器>.<tailnet>.ts.net
-tailscale funnel status              # 看地址；reset 可取消
-```
+- **原理**：机器出站连到 Tailscale 边缘，公网访问 `https://<机器>.<tailnet>.ts.net` 时由 Tailscale
+  终止 TLS 再转发到本机端口 —— 所以不用开入站端口、不用公网 IP、不用证书，也不占本机 80/443。
+- 只能暴露 **443 / 8443 / 10000**；`tailscale funnel --bg 8787` 会自动映射到 443，客户端**不写端口**。
+- 客户端配置：
 
-客户端配置（地址里的机器名、tailnet 名换成 `tailscale funnel status` 输出的）：
+  ```properties
+  apiKey=local-party
+  databaseUrl=https://myhost.tailxxxx.ts.net
+  relayUrl=https://myhost.tailxxxx.ts.net
+  ```
 
-```properties
-apiKey=local-party
-databaseUrl=https://myhost.tailxxxx.ts.net
-relayUrl=https://myhost.tailxxxx.ts.net
-```
-
-注意：
-
-- TLS 由 Tailscale 自动签（公共受信），不需要 `TLS_CERT`，服务继续只监听 `127.0.0.1:8787`；
-- 只能暴露 **443 / 8443 / 10000**，`funnel 8787` 自动映射到 443；
-- 流量走中继，多几十毫秒延迟；本项目有 `clock` 校时，够用；
-- 机器或 Tailscale 掉线就全断；地址随「机器名 + tailnet 名」变。
+- `--bg` 存在节点状态里，Tailscale 服务开机自启会恢复；Tailscale 退出/机器关机则全断。
+- 地址由「机器名 + tailnet 名」组成，任何一个改了域名就变，玩家配置要跟着更新。
+- 流量走中继多几十毫秒延迟，本项目有 `clock` 校时，够用。
 
 ---
 
@@ -316,6 +313,25 @@ relayUrl=https://party.example.com
 
 ## 2.10 内网（不想开端口 / 没有公网 IP）
 
+**一个入站端口都不许开的时候**（比如服务器只放行 MC 端口），只剩纯出站或免服务端的三条：
+
+| 方案 | 为什么行 | 代价 |
+| --- | --- | --- |
+| **Tailscale Funnel**（2.7） | 你的机器出站连 Tailscale 边缘，公网 443 是 Tailscale 的，不是你的 | 依赖 Tailscale 常驻，多几十毫秒延迟 |
+| **Cloudflare Tunnel**（2.8） | `cloudflared` 出站长连接 | 要一个托管在 Cloudflare 的域名 |
+| **Firebase**（2.2） | 根本没有自建服务端 | 数据在 Google，国内直连常不通 |
+
+反过来，**下面这些在「禁 80/443」的环境下用不了**：
+
+- Nginx / Caddy 反代（要监听 443）；
+- Let's Encrypt 的 **IP 证书**（HTTP-01 验证必须占用 80）；
+- 用自签证书顶替（客户端是 Java，默认不信任自签 CA）。
+
+如果只是禁 80/443、但允许 **8443** 之类的端口，还可以：域名 + DNS-01 签证书（签发不占 80）+
+`TLS_CERT` 起在 8443，客户端填 `https://party.example.com:8443`；Cloudflare 橙云也能回源 8443。
+
+内网（没有公网入口）另外两条：
+
 - **Tailscale Funnel**：见 2.7，完全不开端口，玩家也不需要装 Tailscale；
 - **内网域名 + DNS-01**：给一个解析到内网 IP 的域名用 DNS-01 签真证书（不占 80 端口），
   `TLS_CERT` 起在 8443，客户端填 `https://party.party.lan:8443`。
@@ -333,7 +349,41 @@ PORT=8443 HOST=0.0.0.0 node server.mjs           # 换地址端口
 TLS_CERT=... TLS_KEY=... PORT=8443 node server.mjs   # 自带 TLS
 DATA_DIR=/opt/dango-party/data node server.mjs   # 数据目录
 QUIET=1 node server.mjs                          # 只打启动信息
+
+# 公网部署推荐：口令 + 公网地址，启动时就生成好玩家配置
+PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
 ```
+
+关于 apiKey（客户端配置里的 `apiKey` = 服务端口令）：
+
+| 怎么启动 | 行为 |
+| --- | --- |
+| 什么都不设 | **首次**自动生成随机口令写进 `data/apikey.txt`；**以后每次启动都读这个文件**（固定不变） |
+| `PARTY_KEY=xxx` | 用这个口令（只是临时覆盖，不写文件；去掉后又回到文件里的那个） |
+| `PARTY_KEY=none` | 关掉校验（谁都能匿名登录，只适合本机/内网测试） |
+| `PUBLIC_URL=https://…` | 生成样例时把地址填好（仅首次生成时生效） |
+
+口令什么时候会变：
+
+- **删掉 `data/apikey.txt`** 再启动 → 生成新的（玩家配置要重新发）；
+- 换了 `DATA_DIR`（数据目录）→ 那是另一份 `apikey.txt`，口令自然不同；
+- 文件所在目录不可写 → 只对本次运行有效，每次启动都变（日志会警告）。
+
+样例配置 `data/firebase.properties.example`：
+
+- **只在不存在时生成**，之后不覆盖——你改过的地址会一直保留；
+- 口令变了只同步里面 `apiKey=` 那一行；
+- 想换地址：直接改样例文件，或者删掉它让服务器按 `PUBLIC_URL` 重新生成。
+
+所以「腐竹」的完整流程就是一条命令：
+
+```bash
+PUBLIC_URL=https://your-domain-or-ts.net node server.mjs
+# 日志：样例配置已生成：data/firebase.properties.example
+```
+
+把样例复制成 `firebase.properties`（地址已经填好），连同 `player/安装配置.bat` 打包发给玩家即可；
+换口令删掉 `data/apikey.txt` 再启动。
 
 完整列表：`node server.mjs --help`。systemd 单元见 [examples/dango-party.service](../examples/dango-party.service)。
 
@@ -371,3 +421,5 @@ QUIET=1 node server.mjs                          # 只打启动信息
 - **6 天 IP 证书必须自动化续期**，一次失败就全断。
 - **`data/secret` 不要泄露**：令牌签名密钥，删掉等于所有人重新登录。
 - **别公开分发服务器地址**：没有账号体系，知道地址就能连。
+- **分清「端口没监听」和「端口被封」**：外网连端口立刻 `Connection refused`（ECONNREFUSED）说明主机可达、
+  只是没有程序监听，改配置/启动服务即可；如果是**超时**或握手到一半卡住，才是防火墙 / 安全组 / 运营商在拦。
