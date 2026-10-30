@@ -131,8 +131,19 @@ relayUrl=
      CLI 在 `C:\Program Files\Tailscale\tailscale.exe`
    - **Linux**：`curl -fsSL https://tailscale.com/install.sh | sh`，然后 `sudo tailscale up`
 2. 管理台 → **DNS**：打开 **MagicDNS** 和 **HTTPS Certificates**（不开会报 `tailnet has no HTTPS`）
-3. 管理台 → **Access Controls**：给这台机器开 Funnel（`funnel` 节点属性）。
-   第一次执行命令时它也会打印一个授权链接，点开同意即可。
+3. 管理台 → **访问控制**：给这台机器开 Funnel。注意这一步**不是**在「通用访问规则」（`src/dst/ip` 全开
+   那条允许的是 tailnet 内部互访）里点，而是在策略文件的 `nodeAttrs` 里加 `funnel` 属性——
+   切到 JSON / 策略文件视图，保留原有规则，加上：
+
+   ```json
+   "nodeAttrs": [
+     { "target": ["*"], "attr": ["funnel"] }
+   ]
+   ```
+
+   （把 `"*"` 换成具体机器名或 `"tag:xxx"` 可以只授权某一台。）
+   另一种更省事的办法：直接在服务器上跑一次 `tailscale funnel 8787`，它会打印
+   `https://login.tailscale.com/f/funnel?node=...` 这样的链接，点开同意即可，不用手改策略。
 
 ### 2. 暴露本机 8787
 
