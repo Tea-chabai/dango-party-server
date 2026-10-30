@@ -117,6 +117,27 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 | 有公网 IP，但 **80 不通**（家用宽带常见） | 弄个域名走 DNS-01（不占端口）：`CF_Token=xxx acme.sh --issue --dns dns_cf -d party.example.com` |
 | 只有内网 IP / 不想开端口 | 隧道：`tailscale funnel --bg 8787`（给一个受信的 `*.ts.net`），或 Cloudflare Tunnel |
 
+#### 用 Cloudflare 的话
+
+**Cloudflare 的橙云代理和 Cloudflare Tunnel 都需要一个托管在 Cloudflare 的域名**（域名的 NS 指过去），
+裸 IP 加不进去。没有域名时只有一种 Cloudflare 用法——`cloudflared tunnel --url` 的快速隧道：
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8787   # 给一个受信的 https://xxx.trycloudflare.com
+```
+
+它可以马上用（客户端 relayUrl 填那个地址），但**地址每次重启都变**，只适合临时让朋友连一下，
+不适合长期发给玩家。
+
+有了域名之后走 Cloudflare，几个和本项目相关的点：
+
+- 客户端 `relayUrl=https://party.example.com`（443，不用写端口）；橙云回源只支持
+  [Cloudflare 指定的端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)，本项目的 8443 在列表内。
+- **给 `/db/*` 加一条 Bypass Cache 的 Cache Rule**（我们的响应已经带 `Cache-Control: no-store`，
+  这条是双保险）；别开对 API 的缓存优化，否则 SSE 和轮询会拿到旧数据。
+- Cloudflare 对空闲连接有 100 秒超时，本项目每 25 秒发一次 SSE 心跳，不会被掐。
+- 想完全不开端口就用 Tunnel（`cloudflared tunnel run` + 一个子域公共主机名），源站只监听 127.0.0.1。
+
 #### IP 证书（不需要域名）
 
 ```bash
