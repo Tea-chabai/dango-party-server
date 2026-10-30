@@ -56,11 +56,11 @@ relayUrl=https://...           # 真正的请求地址；留空则直连 databas
 node server.mjs                 # 监听 127.0.0.1:8787
 ```
 
-启动时会自动生成一份玩家配置（含随机 apiKey）在 `data/firebase.properties`，
-把里面的地址改成下面这样即可（或者直接用启动日志打印的 apiKey）：
+启动时会自动生成一份**样例配置**（含随机 apiKey）在 `data/firebase.properties.example`
+（只生成一次，之后不会覆盖；地址是占位符）。复制成 `firebase.properties`，把地址改成下面这样：
 
 ```properties
-apiKey=dango-xxxxxxxxxxxx      # 见启动日志 / data/apikey.txt
+apiKey=dango-xxxxxxxxxxxx      # 见启动日志 / data/apikey.txt / 样例文件
 databaseUrl=https://127.0.0.1:8787
 relayUrl=http://127.0.0.1:8787
 ```
@@ -361,7 +361,7 @@ PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
 | 什么都不设 | **首次**自动生成随机口令写进 `data/apikey.txt`；**以后每次启动都读这个文件**（固定不变） |
 | `PARTY_KEY=xxx` | 用这个口令（只是临时覆盖，不写文件；去掉后又回到文件里的那个） |
 | `PARTY_KEY=none` | 关掉校验（谁都能匿名登录，只适合本机/内网测试） |
-| `PUBLIC_URL=https://…` | 把地址填进生成的那份配置，直接可以发给玩家 |
+| `PUBLIC_URL=https://…` | 生成样例时把地址填好（仅首次生成时生效） |
 
 口令什么时候会变：
 
@@ -369,17 +369,21 @@ PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
 - 换了 `DATA_DIR`（数据目录）→ 那是另一份 `apikey.txt`，口令自然不同；
 - 文件所在目录不可写 → 只对本次运行有效，每次启动都变（日志会警告）。
 
-`data/firebase.properties` 每次启动都会重写，但**地址会沿用旧文件里的**，所以手改过不会被占位符冲掉；
-想换地址最稳的是用 `PUBLIC_URL` 重启一次。
+样例配置 `data/firebase.properties.example`：
+
+- **只在不存在时生成**，之后不覆盖——你改过的地址会一直保留；
+- 口令变了只同步里面 `apiKey=` 那一行；
+- 想换地址：直接改样例文件，或者删掉它让服务器按 `PUBLIC_URL` 重新生成。
 
 所以「腐竹」的完整流程就是一条命令：
 
 ```bash
 PUBLIC_URL=https://your-domain-or-ts.net node server.mjs
-# 日志：apiKey: dango-xxxx  /  玩家配置已生成：data/firebase.properties
+# 日志：样例配置已生成：data/firebase.properties.example
 ```
 
-把 `data/firebase.properties` 连同 `player/安装配置.bat` 打包发给玩家即可；换口令删掉 `data/apikey.txt` 再启动。
+把样例复制成 `firebase.properties`（地址已经填好），连同 `player/安装配置.bat` 打包发给玩家即可；
+换口令删掉 `data/apikey.txt` 再启动。
 
 完整列表：`node server.mjs --help`。systemd 单元见 [examples/dango-party.service](../examples/dango-party.service)。
 

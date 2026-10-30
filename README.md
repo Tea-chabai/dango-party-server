@@ -33,13 +33,13 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 本机先验证（不用域名、不用 TLS）：
 
-1. 起服务。启动日志会打印 `apiKey: dango-xxxx`，并**自动生成**一份玩家配置
-   `data/firebase.properties`（apiKey 已经对好，只差地址）。
-2. 把那份配置改一下地址（本机就是 `https://127.0.0.1:8787` + `http://127.0.0.1:8787`），
-   放到游戏目录的 `config/dangomusic/firebase.properties`；或者直接用它：
+1. 起服务。启动日志会打印 `apiKey: dango-xxxx`，并**自动生成一份样例配置**
+   `data/firebase.properties.example`（apiKey 已经对好，地址是占位符；只生成一次，之后不会覆盖）。
+2. 把它复制一份命名为 `firebase.properties`，地址改成本机的 `https://127.0.0.1:8787` /
+   `http://127.0.0.1:8787`，放进游戏目录的 `config/dangomusic/`：
 
    ```properties
-   apiKey=dango-xxxx（照抄启动日志里的）
+   apiKey=dango-xxxx（照抄启动日志或样例文件里的）
    databaseUrl=https://127.0.0.1:8787
    relayUrl=http://127.0.0.1:8787
    ```
@@ -174,15 +174,15 @@ curl https://myhost.tailxxxx.ts.net/healthz
 ### 4. 客户端配置
 
 把地址换成 `tailscale funnel status` 里显示的那个，**不带端口**。
-最省事的是**让服务器自己生成**：启动时加 `PUBLIC_URL`，它会把 apiKey 和地址都填好，写进
-`data/firebase.properties`，直接发给玩家：
+最省事的是**让服务器把地址写进样例**：启动时加 `PUBLIC_URL`，它生成的
+`data/firebase.properties.example` 里地址就已经填好，你复制成 `firebase.properties` 就能发：
 
 ```bash
 PUBLIC_URL=https://myhost.tailxxxx.ts.net node server.mjs
-# 日志里会打印：玩家配置已生成：data/firebase.properties
+# 日志：样例配置已生成：data/firebase.properties.example
 ```
 
-生成的配置长这样（apiKey 是服务器自动生成的随机口令，重启不变，存在 `data/apikey.txt`）：
+样例内容（apiKey 是服务器自动生成的随机口令，重启不变，存在 `data/apikey.txt`）：
 
 ```properties
 apiKey=dango-xxxxxxxxxxxx
@@ -191,7 +191,7 @@ relayUrl=https://myhost.tailxxxx.ts.net
 ```
 
 Funnel 只支持 443 / 8443 / 10000，`funnel 8787` 会自动映射到 443。
-发给玩家照旧用 `player/` 里的 `安装配置.bat`（把它旁边的 `firebase.properties` 换成生成的那份）。
+发给玩家照旧用 `player/` 里的 `安装配置.bat`（把它旁边的 `firebase.properties` 换成你改好的那份）。
 
 ### 5. 日常维护
 
@@ -234,7 +234,7 @@ tailscale funnel status                            # 看目标端口对不对
 
 | 文件 | 作用 |
 | --- | --- |
-| `player/firebase.properties` | 把两处 `party.example.com` 改成你的服务器域名（用 Firebase 就换成 Firebase 的两个值）；<br>**也可以直接用服务器自动生成的 `data/firebase.properties`**（apiKey 已对好） |
+| `player/firebase.properties` | 把两处 `party.example.com` 改成你的服务器域名（用 Firebase 就换成 Firebase 的两个值）；<br>**也可以把服务器生成的 `data/firebase.properties.example` 复制改名后用**（apiKey 已对好） |
 | `player/安装配置.bat` | 玩家双击即装到 `.minecraft/config/dangomusic/`；PCL/HMCL 用户可把实例目录拖上去 |
 | `player/安装说明.txt` | 操作步骤、Direct 连接方式、常见问题 |
 

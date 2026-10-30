@@ -378,9 +378,9 @@ async function testPartyKey() {
   }
 }
 
-/** 第 13 组：不设 PARTY_KEY 时自动生成口令 + 玩家配置 */
+/** 第 13 组：不设 PARTY_KEY 时自动生成口令 + 样例配置（只生成一次、地址不被覆盖） */
 async function testAutoKey() {
-  console.log('\n13) 自动生成 apiKey 与玩家配置')
+  console.log('\n13) 自动生成 apiKey 与样例配置')
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-auto-'))
   const srv = await startServer({ PARTY_KEY: undefined, PUBLIC_URL: 'https://party.test', DATA_DIR: dataDir })
   try {
@@ -389,11 +389,11 @@ async function testAutoKey() {
     const key = fs.readFileSync(keyFile, 'utf8').trim()
     ok('口令看起来是随机的', /^dango-[A-Za-z0-9_-]{8,}$/.test(key), key)
 
-    const cfgFile = path.join(dataDir, 'firebase.properties')
-    ok('生成了玩家配置 data/firebase.properties', fs.existsSync(cfgFile))
+    const cfgFile = path.join(dataDir, 'firebase.properties.example')
+    ok('生成了样例配置 data/firebase.properties.example', fs.existsSync(cfgFile))
     const cfg = fs.readFileSync(cfgFile, 'utf8')
-    ok('配置里的 apiKey 与口令一致', cfg.includes('apiKey=' + key), cfg)
-    ok('配置里填了 PUBLIC_URL', cfg.includes('relayUrl=https://party.test'), cfg)
+    ok('样例里的 apiKey 与口令一致', cfg.includes('apiKey=' + key), cfg)
+    ok('样例里填了 PUBLIC_URL', cfg.includes('relayUrl=https://party.test'), cfg)
 
     const good = await fetch(`${srv.base}/id/v1/accounts:signUp?key=${encodeURIComponent(key)}`, {
       method: 'POST',
@@ -408,18 +408,32 @@ async function testAutoKey() {
     })
     ok('别的口令被拒', wrong.status === 403, wrong.status)
 
-    // 重启一次（不带 PUBLIC_URL）：口令要复用，配置里手改过的地址不能被冲掉
+    // 模拟腐竹把地址改成了自己的，然后再重启（不带 PUBLIC_URL）
+    fs.writeFileSync(cfgFile, cfg.replaceAll('https://party.test', 'https://my.party.example'))
     srv.child.kill('SIGTERM')
     await sleep(300)
     const again = await startServer({ PARTY_KEY: undefined, DATA_DIR: dataDir })
     try {
       ok('重启后口令不变', fs.readFileSync(keyFile, 'utf8').trim() === key)
       const cfg2 = fs.readFileSync(cfgFile, 'utf8')
-      ok('重启后配置里的地址沿用（没被占位符冲掉）', cfg2.includes('relayUrl=https://party.test'), cfg2)
-      ok('重启后配置里的 apiKey 仍是同一个', cfg2.includes('apiKey=' + key), cfg2)
+      ok('手改的地址没被覆盖', cfg2.includes('relayUrl=https://my.party.example'), cfg2)
+      ok('样例里 apiKey 仍是同一个', cfg2.includes('apiKey=' + key), cfg2)
     } finally {
       try {
         again.child.kill('SIGTERM')
+      } catch {}
+    }
+
+    // 换口令后再启动：只同步 apiKey 那一行，地址保持原样
+    await sleep(300)
+    const third = await startServer({ PARTY_KEY: 'changed-key', DATA_DIR: dataDir })
+    try {
+      const cfg3 = fs.readFileSync(cfgFile, 'utf8')
+      ok('换口令后样例里的 apiKey 被同步', cfg3.includes('apiKey=changed-key'), cfg3)
+      ok('换口令后地址依然没动', cfg3.includes('relayUrl=https://my.party.example'), cfg3)
+    } finally {
+      try {
+        third.child.kill('SIGTERM')
       } catch {}
     }
   } finally {

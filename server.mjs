@@ -138,27 +138,50 @@ function readPrevConfig(file) {
   }
 }
 
-/** 给玩家分发的配置文件：data/firebase.properties（有 PUBLIC_URL 就用它，否则沿用旧文件里的地址） */
-function writePlayerConfig(url) {
-  const file = path.join(DATA_DIR, 'firebase.properties')
+/**
+ * 给腐竹的「样例配置」：data/firebase.properties.example
+ *   - 只在不存在时生成一份；之后**不覆盖**（地址是腐竹自己改的）
+ *   - 口令变了就只同步 apiKey 那一行，其它行原样保留
+ * 腐竹把它复制成 firebase.properties，改掉 party.example.com 就能发给玩家。
+ */
+function writeSampleConfig(url) {
+  const file = path.join(DATA_DIR, 'firebase.properties.example')
   const prev = readPrevConfig(file)
-  const target = url || prev.databaseUrl || prev.relayUrl || 'https://party.example.com'
+  const key = PARTY_KEY || 'local-party'
+
+  if (prev.apiKey) {
+    if (prev.apiKey !== key) {
+      try {
+        const text = fs.readFileSync(file, 'utf8').replace(/^apiKey=.*$/m, 'apiKey=' + key)
+        fs.writeFileSync(file, text)
+      } catch (e) {
+        console.error('[!] 更新 ' + file + ' 失败：' + e.message)
+      }
+    }
+    return { file, created: false }
+  }
+
+  // 第一次生成：地址优先用 PUBLIC_URL，其次沿用旧文件（兼容上一版写出的 firebase.properties）
+  const legacy = readPrevConfig(path.join(DATA_DIR, 'firebase.properties'))
+  const target = url || legacy.databaseUrl || legacy.relayUrl || 'https://party.example.com'
   const text = [
-    '# Dango Music 一起听歌 —— 玩家配置（服务器自动生成）',
+    '# Dango Music 一起听歌 —— 样例配置（服务器生成，请复制成 firebase.properties 后使用）',
     '# 放到 <游戏目录>/config/dangomusic/firebase.properties',
+    '# 把下面两处 party.example.com 换成你的服务器地址（https，不带端口除非你开了非标准端口）',
     '# apiKey 必须和服务器一致，否则登录会被拒（403）',
     '',
-    'apiKey=' + (PARTY_KEY || 'local-party'),
+    'apiKey=' + key,
     'databaseUrl=' + target,
     'relayUrl=' + target,
     '',
   ].join('\n')
   try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
     fs.writeFileSync(file, text)
-    return file
+    return { file, created: true }
   } catch (e) {
     console.error('[!] 写不进去 ' + file + '：' + e.message)
-    return ''
+    return { file: '', created: false }
   }
 }
 
@@ -759,11 +782,15 @@ server.listen(PORT, HOST, () => {
     log('  apiKey 校验已关闭（PARTY_KEY=none）：谁都能匿名登录，只适合本机测试')
   }
   const cfgUrl = PUBLIC_URL || (TLS ? `${scheme}://127.0.0.1:${actual}` : '')
-  const cfgFile = writePlayerConfig(cfgUrl)
-  if (cfgFile) {
-    log('  玩家配置已生成：' + cfgFile)
-    if (!cfgUrl) log('    把里面的 party.example.com 换成你的公网地址（或用 PUBLIC_URL=... 启动，自动填好）')
-    log('    分发方式：把这份 firebase.properties 发给玩家，放到 <游戏目录>/config/dangomusic/ 即可')
+  const sample = writeSampleConfig(cfgUrl)
+  if (sample.file) {
+    if (sample.created) {
+      log('  样例配置已生成：' + sample.file)
+      log('    复制成 firebase.properties，把 party.example.com 换成你的地址后发给玩家')
+      log('    （以后不会再覆盖它；换口令只同步里面的 apiKey 那一行）')
+    } else {
+      log('  样例配置：' + sample.file + '（已存在，未改动）')
+    }
   }
   if (process.env.TEST_PORT_READY === '1') console.log('PORT_READY ' + actual)
 })
