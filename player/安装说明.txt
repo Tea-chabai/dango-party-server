@@ -49,3 +49,30 @@ Dango Music · 一起听歌（自建服务器）配置说明
 · 歌曲音频不经过服务器，每人用自己的账号拉流，VIP 和地区版权各算各的。
 · 房间码等于房间钥匙，别发到公开群；服务器是我们自己搭的，别拿去给外人用。
 · 装好后建议和房主的客户端版本一致（1.7.0 才有成员控制和 QQ / 酷狗音源）。
+
+—— 整合包作者注意（重要）——
+
+「一起听歌」的身份是每台电脑一个匿名 uid，存在
+    config\dangomusic\firebase_auth.json
+这个文件是个人凭据，打包整合包时千万不要带上。
+
+如果带上了，所有用这个包的玩家会共用同一个 uid：
+    · 一起听歌里身份错乱（后进的会顶掉前一个，房主/成员判断乱套）
+    · 里面的刷新令牌跟着泄露，别人能用这个身份连服务器、改房间甚至关房
+    · 成员列表里分不清谁是谁
+
+config\dangomusic\ 里建议这样处理：
+    firebase.properties        要带（填服务器域名）
+    firebase_auth.json         绝对不要带（uid + 刷新令牌）
+    *_session.json             不要带（网易云/QQ/酷狗登录态）
+    netease_cookie.txt         不要带（网易云 Cookie）
+    config.json               不建议带（会把你的个人设置强加给别人）
+    party_proxy.json          不建议带（会把你的连接方式写死）
+    update_check.json          随便
+
+正确的做法：整合包里只放 config\dangomusic\firebase.properties，
+或者干脆什么都不放，让玩家自己双击「安装配置.bat」。
+客户端第一次进一起听歌页面时会自己生成新的 firebase_auth.json，删掉不影响功能。
+如果已经带着它发出去了：从包里删掉，并让服主删掉服务器的 data\secret
+（所有人重新登录、旧令牌失效），否则泄露的令牌还能用。
+

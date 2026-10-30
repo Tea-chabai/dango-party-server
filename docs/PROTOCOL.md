@@ -65,6 +65,8 @@ grant_type=refresh_token&refresh_token=...
 
 客户端把 `uid` + `refreshToken` 存在 `config/dangomusic/firebase_auth.json`，
 令牌到期前 5 分钟会自动刷新；`401` 会让它重走一次刷新。
+这个文件是**个人凭据**（uid 决定房间里的身份，`refreshToken` 等于登录态），
+打包整合包分发时不能带上，否则所有玩家会共用一个 uid —— 见 README 的对应警告。
 
 ## 3. 数据库 REST
 

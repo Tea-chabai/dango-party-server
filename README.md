@@ -14,6 +14,9 @@
 - 自带协议一致性测试（37 项，模拟房主 + 成员跑完整流程）
 
 > 不是 DangoMusic 官方项目，也不是 Firebase 的替代品实现；只是「让客户端连到自己机器」的这一小块。
+>
+> 📦 **要打包整合包发出去？先看下面「打包整合包时：不要带上 uid 文件」**——
+> `config/dangomusic/firebase_auth.json` 是个人凭据，带上它会让所有玩家共用同一个身份。
 
 ## 快速开始
 
@@ -57,6 +60,39 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 >
 > `install` 类 `.bat` 是 **GBK + CRLF** 编码（中文 Windows 的 cmd 默认 GBK），用编辑器改过之后
 > 记得存回 GBK，否则会出现 `'xxx' 不是内部或外部命令`。
+
+## ⚠️ 打包整合包时：不要带上 uid 文件
+
+「一起听歌」的身份是**每台游戏安装一个匿名 uid**（不是 IP、也不是玩家名），存在
+`config/dangomusic/firebase_auth.json` 里。**这个文件是个人凭据，绝对不能进整合包。**
+
+如果整合包打包了它，所有装这个包的玩家会**共用同一个 uid**：
+
+- 在服务器眼里这些客户端是**同一个人**：房间的 `host` 认的就是这个 uid，所以拿到包的每个人
+  都能以房主权限改房间、改播放状态、关房；
+- 成员列表里这些玩家只算一个人，`(you)` 会标错人，房主/成员判断乱套；
+- `refreshToken` 跟着泄露，拿到它的人能以这个身份连你的服务器（不装游戏也能用）；
+- 有人退出时会把 `members/{uid}` 删掉，等于把别人的心跳节点一起删了，房间看起来就没人在。
+
+整合包里 `config/dangomusic/` 各文件的处理方式：
+
+| 文件 | 整合包里要不要带 | 说明 |
+| --- | --- | --- |
+| `firebase.properties` | ✅ **要带**（改成你的域名） | 服务器地址，功能靠它 |
+| `firebase_auth.json` | ❌ **绝对不要** | 匿名 uid + 刷新令牌，等于这个人的身份 |
+| `netease_session.json` / `qq_session.json` / `kugou_session.json` | ❌ 不要 | 音乐账号登录态 |
+| `netease_cookie.txt` | ❌ 不要 | 网易云 Cookie |
+| `config.json` | ⚠️ 不建议 | 你的个人设置会强加给所有玩家 |
+| `party_proxy.json` | ⚠️ 不建议 | 会把你的连接方式（如 Direct）写死给别人 |
+| `update_check.json` | 无所谓 | 只是缓存 |
+
+正确的打包方式：整合包里只放 `config/dangomusic/firebase.properties`，或者什么都不放、让玩家跑
+`player/安装配置.bat`。客户端首次进入一起听歌页面时会自己重新生成 `firebase_auth.json`（新的 uid），
+所以删掉它不影响功能，只会让这个玩家变成"新身份"。
+
+**如果已经打包发出去了**：把上述文件从包里删掉；服务器端再删一次 `data/secret`（所有人重新登录、
+旧令牌全部失效），否则泄露的 `refreshToken` 依然能用。
+
 
 ## 公网部署
 
