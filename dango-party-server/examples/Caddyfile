@@ -1,0 +1,11 @@
+# Caddy 反代示例：自动申请证书，最省事
+#
+#   caddy run --config Caddyfile
+#
+# flush_interval -1 是 SSE 的关键（等价于 Nginx 的 proxy_buffering off）。
+
+party.example.com {
+    reverse_proxy 127.0.0.1:8787 {
+        flush_interval -1
+    }
+}
