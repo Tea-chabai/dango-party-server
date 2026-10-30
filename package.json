@@ -1,0 +1,39 @@
+{
+  "name": "dango-party-server",
+  "version": "1.0.0",
+  "description": "Dango Music「一起听歌」的自建同步后端：一个单文件 Node 服务，兼容客户端的 Firebase 实时数据库调用",
+  "type": "module",
+  "main": "server.mjs",
+  "bin": {
+    "dango-party-server": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/protocol.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "minecraft",
+    "fabric",
+    "dangomusic",
+    "firebase",
+    "realtime",
+    "listen-together",
+    "self-hosted"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-name/dango-party-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-name/dango-party-server/issues"
+  }
+}
