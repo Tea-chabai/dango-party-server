@@ -358,10 +358,19 @@ PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
 
 | 怎么启动 | 行为 |
 | --- | --- |
-| 什么都不设 | **自动生成**随机口令，写进 `data/apikey.txt`（重启复用），并生成 `data/firebase.properties` |
-| `PARTY_KEY=xxx` | 用这个口令 |
+| 什么都不设 | **首次**自动生成随机口令写进 `data/apikey.txt`；**以后每次启动都读这个文件**（固定不变） |
+| `PARTY_KEY=xxx` | 用这个口令（只是临时覆盖，不写文件；去掉后又回到文件里的那个） |
 | `PARTY_KEY=none` | 关掉校验（谁都能匿名登录，只适合本机/内网测试） |
 | `PUBLIC_URL=https://…` | 把地址填进生成的那份配置，直接可以发给玩家 |
+
+口令什么时候会变：
+
+- **删掉 `data/apikey.txt`** 再启动 → 生成新的（玩家配置要重新发）；
+- 换了 `DATA_DIR`（数据目录）→ 那是另一份 `apikey.txt`，口令自然不同；
+- 文件所在目录不可写 → 只对本次运行有效，每次启动都变（日志会警告）。
+
+`data/firebase.properties` 每次启动都会重写，但**地址会沿用旧文件里的**，所以手改过不会被占位符冲掉；
+想换地址最稳的是用 `PUBLIC_URL` 重启一次。
 
 所以「腐竹」的完整流程就是一条命令：
 

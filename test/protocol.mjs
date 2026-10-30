@@ -407,6 +407,21 @@ async function testAutoKey() {
       body: '{"returnSecureToken":true}',
     })
     ok('别的口令被拒', wrong.status === 403, wrong.status)
+
+    // 重启一次（不带 PUBLIC_URL）：口令要复用，配置里手改过的地址不能被冲掉
+    srv.child.kill('SIGTERM')
+    await sleep(300)
+    const again = await startServer({ PARTY_KEY: undefined, DATA_DIR: dataDir })
+    try {
+      ok('重启后口令不变', fs.readFileSync(keyFile, 'utf8').trim() === key)
+      const cfg2 = fs.readFileSync(cfgFile, 'utf8')
+      ok('重启后配置里的地址沿用（没被占位符冲掉）', cfg2.includes('relayUrl=https://party.test'), cfg2)
+      ok('重启后配置里的 apiKey 仍是同一个', cfg2.includes('apiKey=' + key), cfg2)
+    } finally {
+      try {
+        again.child.kill('SIGTERM')
+      } catch {}
+    }
   } finally {
     try {
       srv.child.kill('SIGTERM')

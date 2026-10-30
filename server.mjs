@@ -122,9 +122,27 @@ const PUBLIC_URL = (() => {
   return ''
 })()
 
-/** 给玩家分发的配置文件：data/firebase.properties */
+/** 读旧配置里的 databaseUrl/relayUrl（手改过的地址别被冲掉） */
+function readPrevConfig(file) {
+  try {
+    const out = {}
+    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const s = line.trim()
+      if (!s || s.startsWith('#') || s.startsWith('!')) continue
+      const i = s.indexOf('=')
+      if (i > 0) out[s.slice(0, i).trim()] = s.slice(i + 1).trim()
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** 给玩家分发的配置文件：data/firebase.properties（有 PUBLIC_URL 就用它，否则沿用旧文件里的地址） */
 function writePlayerConfig(url) {
-  const target = url || 'https://party.example.com'
+  const file = path.join(DATA_DIR, 'firebase.properties')
+  const prev = readPrevConfig(file)
+  const target = url || prev.databaseUrl || prev.relayUrl || 'https://party.example.com'
   const text = [
     '# Dango Music 一起听歌 —— 玩家配置（服务器自动生成）',
     '# 放到 <游戏目录>/config/dangomusic/firebase.properties',
@@ -135,7 +153,6 @@ function writePlayerConfig(url) {
     'relayUrl=' + target,
     '',
   ].join('\n')
-  const file = path.join(DATA_DIR, 'firebase.properties')
   try {
     fs.writeFileSync(file, text)
     return file
