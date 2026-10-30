@@ -223,6 +223,27 @@ HOST=0.0.0.0 PORT=8443 \
 - 数据：`data/party.json`（房间）+ `data/secret`（令牌签名密钥）。删掉 `party.json` 等于清空所有房间；
   删掉 `secret` 只影响每个人的登录态（会重新匿名登录一次）。
 
+### 方案 D：Tailscale Funnel（零证书、零端口、不用域名）
+
+适合「私人服 + 几个朋友」，配置成本最低的一条路：
+
+```bash
+tailscale up                          # 登录自己的 tailnet
+sudo tailscale funnel --bg 8787       # 把本机 8787 暴露出去
+tailscale funnel status               # 查看地址，形如 https://<机器名>.<tailnet>.ts.net
+```
+
+客户端写 `relayUrl=https://<机器名>.<tailnet>.ts.net`（不用写端口），`databaseUrl` 填同一个。
+server.mjs 继续只监听 `127.0.0.1:8787`，不用改、不用证书、不用开防火墙。
+
+- TLS 由 Tailscale 自动签（公共受信），所以客户端能过 Java 的证书校验。
+- 只能暴露 **443 / 8443 / 10000**；`funnel 8787` 会自动映射到 443。
+- 流量走 Tailscale 的中继，会多几十毫秒延迟；一起听歌只同步心跳和进度，且服务端有 `clock` 校时，
+  实测够用。
+- 第一次用要在管理台给节点开 Funnel（Access controls 里的 `funnel` 属性），命令会打印需要点的链接。
+- 定位是个人小流量：机器或 Tailscale 掉线就全断；地址按「机器名 + tailnet 名」生成，换机器会变。
+- 见 [Tailscale Funnel 文档](https://tailscale.com/kb/1223/funnel)。
+
 ### ⚠️ 内网直接 `http://192.168.x.x:8787` 不行
 
 客户端的 `relayUrl` 只接受 `https://…`，`http://` 只放行 `127.0.0.1` / `localhost`。所以「内网 IP + http」这条路走不通。
