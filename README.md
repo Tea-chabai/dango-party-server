@@ -108,22 +108,53 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 ### 先解决证书：有公网 IP 但没有受信任证书
 
-**Let's Encrypt 不给 IP 签证书**，所以先要一个域名（免费的也行：DuckDNS 的 `xxx.duckdns.org`、
-或者几块钱一年的 `.xyz`）。而且**访问地址必须用这个域名**——用 `https://1.2.3.4:8443` 会因为
-证书域名对不上，被 Java 直接拒绝。
-
-三条路，按「有没有 80 端口入站」挑：
+**从 2026 年起 Let's Encrypt 可以给公网 IP 签证书了**（IP 证书强制 6 天有效期），
+所以有公网 IP 时不一定非要域名。
 
 | 情况 | 做法 |
 | --- | --- |
-| 域名已解析到公网 IP，**80 端口可达** | `acme.sh --issue --standalone -d party.example.com`（或 `certbot certonly --standalone -d ...`） |
-| **80 被封 / 被占用**（家用宽带常见） | DNS-01 验证，不占端口：`CF_Token=xxx acme.sh --issue --dns dns_cf -d party.example.com`；DuckDNS 用 `--dns dns_duckdns` |
-| 不想买域名，也不想开端口 | 用隧道：`tailscale funnel --bg 8787`（给一个 `*.ts.net` 的受信 https，443 由 Tailscale 终止），或 Cloudflare Tunnel（需要一个托管在 Cloudflare 的域名） |
+| 有公网 IP，**80 端口可达** | 直接签 IP 证书（见下），客户端填 `https://<你的IP>:8443` |
+| 有公网 IP，但 **80 不通**（家用宽带常见） | 弄个域名走 DNS-01（不占端口）：`CF_Token=xxx acme.sh --issue --dns dns_cf -d party.example.com` |
+| 只有内网 IP / 不想开端口 | 隧道：`tailscale funnel --bg 8787`（给一个受信的 `*.ts.net`），或 Cloudflare Tunnel |
+
+#### IP 证书（不需要域名）
+
+```bash
+# Certbot ≥ 5.4（--ip-address 是 5.3 加的，webroot 支持 IP 要 5.4）
+certbot --version
+
+# 先用 staging 试通，再删掉 --staging 拿正式证书
+sudo certbot certonly --staging \
+  --preferred-profile shortlived \
+  --standalone \
+  --ip-address 203.0.113.10
+
+# 正式签发
+sudo certbot certonly \
+  --preferred-profile shortlived \
+  --standalone \
+  --ip-address 203.0.113.10
+```
+
+产物在 `/etc/letsencrypt/live/<IP>/fullchain.pem` 和 `privkey.pem`。要点：
+
+- **只有 6 天有效期**（`shortlived` 是 IP 证书的硬性要求），必须让 `certbot renew` 自动跑，
+  并且配上续期后重启服务的钩子，否则一周后玩家就连不上：
+  ```bash
+  certbot reconfigure --preferred-profile shortlived --ip-address 203.0.113.10 \
+    --deploy-hook 'systemctl restart dango-party'
+  ```
+- 验证走 **HTTP-01（80 端口）**，签发和每次续期都需要 80 可达；`--standalone` 会临时占用 80，
+  如果 80 上有别的服务，改用 `--webroot -w /var/www/html`。
+- 客户端直接填 `https://203.0.113.10:8443`（IP 形式的 https 客户端接受）。
+- 嫌 6 天太紧（一次续期失败就断服），就用域名 + DNS-01，90/45 天更稳。
+
+#### 域名证书
 
 拿到证书后起服务：
 
 ```bash
-# acme.sh 的产物在 ~/.acme.sh/<域名>/
+# acme.sh 的产物在 ~/.acme.sh/<域名>/；certbot 在 /etc/letsencrypt/live/<域名>/
 TLS_CERT=/root/.acme.sh/party.example.com/fullchain.cer \
 TLS_KEY=/root/.acme.sh/party.example.com/party.example.com.key \
 HOST=0.0.0.0 PORT=8443 node server.mjs
