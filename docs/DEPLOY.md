@@ -311,6 +311,25 @@ relayUrl=https://party.example.com
 
 ## 2.10 内网（不想开端口 / 没有公网 IP）
 
+**一个入站端口都不许开的时候**（比如服务器只放行 MC 端口），只剩纯出站或免服务端的三条：
+
+| 方案 | 为什么行 | 代价 |
+| --- | --- | --- |
+| **Tailscale Funnel**（2.7） | 你的机器出站连 Tailscale 边缘，公网 443 是 Tailscale 的，不是你的 | 依赖 Tailscale 常驻，多几十毫秒延迟 |
+| **Cloudflare Tunnel**（2.8） | `cloudflared` 出站长连接 | 要一个托管在 Cloudflare 的域名 |
+| **Firebase**（2.2） | 根本没有自建服务端 | 数据在 Google，国内直连常不通 |
+
+反过来，**下面这些在「禁 80/443」的环境下用不了**：
+
+- Nginx / Caddy 反代（要监听 443）；
+- Let's Encrypt 的 **IP 证书**（HTTP-01 验证必须占用 80）；
+- 用自签证书顶替（客户端是 Java，默认不信任自签 CA）。
+
+如果只是禁 80/443、但允许 **8443** 之类的端口，还可以：域名 + DNS-01 签证书（签发不占 80）+
+`TLS_CERT` 起在 8443，客户端填 `https://party.example.com:8443`；Cloudflare 橙云也能回源 8443。
+
+内网（没有公网入口）另外两条：
+
 - **Tailscale Funnel**：见 2.7，完全不开端口，玩家也不需要装 Tailscale；
 - **内网域名 + DNS-01**：给一个解析到内网 IP 的域名用 DNS-01 签真证书（不占 80 端口），
   `TLS_CERT` 起在 8443，客户端填 `https://party.party.lan:8443`。
