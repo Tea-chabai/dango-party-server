@@ -1,0 +1,16 @@
+# 运行时数据：房间、令牌签名密钥
+data/
+
+# 日志
+*.log
+logs/
+
+# 依赖（本项目零依赖，这里是防手滑）
+node_modules/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

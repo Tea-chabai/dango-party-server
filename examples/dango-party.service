@@ -1,0 +1,39 @@
+# systemd 服务：/etc/systemd/system/dango-party.service
+#
+#   sudo mkdir -p /opt/dango-party
+#   sudo cp server.mjs package.json /opt/dango-party/
+#   sudo useradd -r -s /usr/sbin/nologin dango
+#   sudo chown -R dango:dango /opt/dango-party
+#   sudo systemctl enable --now dango-party
+#   curl -s http://127.0.0.1:8787/healthz
+
+[Unit]
+Description=Dango Music party server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/dango-party
+ExecStart=/usr/bin/node server.mjs
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=DATA_DIR=/opt/dango-party/data
+Restart=always
+RestartSec=2
+User=dango
+Group=dango
+
+# 加固：只需要读代码 + 写 data 目录
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dango-party/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

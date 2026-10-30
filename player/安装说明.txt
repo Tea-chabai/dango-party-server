@@ -1,0 +1,51 @@
+Dango Music · 一起听歌（自建服务器）配置说明
+==========================================
+
+这个包只有一个配置文件，作用是让客户端连到我们自己的同步服务器，
+这样大家就能在游戏里「一起听歌」：同一首歌、同一秒，谁切歌所有人都跟着切。
+
+—— 怎么装 ——
+
+方法 1（最简单，Windows）
+  双击「安装配置.bat」。
+  如果你用的是 PCL / HMCL / 整合包、游戏目录不是默认的那个，
+  把那个 .minecraft 文件夹拖到 bat 上再松手。
+
+方法 2（手动）
+  把 firebase.properties 复制到：
+      <游戏目录>\config\dangomusic\firebase.properties
+  默认的游戏目录是：
+      %APPDATA%\.minecraft
+  所以完整路径一般是：
+      C:\Users\你的用户名\AppData\Roaming\.minecraft\config\dangomusic\firebase.properties
+  （config\dangomusic 这个文件夹可能不存在，自己新建即可）
+
+—— 怎么用 ——
+
+1. 进游戏，按 M 打开播放器（主菜单也能开）。
+2. 左侧点「♬ 一起听歌」。
+3. 第一次进来，先把页面底部「连接方式」选成 Direct。
+   （默认是「跟随系统代理」，如果你没开代理，反而会连不上。）
+4. 建房的人点「Create a room」，页面会出现房间码 D-XXXXX，点 Copy。
+5. 其他人把房间码粘到输入框，点 Join。
+6. 房主正常放歌就行，所有人自动同步；房主可以打开
+   「Let members control playback」让成员也能切歌。
+
+—— 出问题了 ——
+
+· 页面红字 "Listen Together is not set up (missing firebase.properties)"
+    → 文件没放对位置。检查 config\dangomusic\firebase.properties 是否存在。
+· 一直转圈 / 提示连不上
+    → 先在浏览器打开 https://你的服务器域名/healthz 看是否返回 {"ok":true}；
+      再检查游戏里「连接方式」是不是 Direct。
+· 提示「房间不存在」
+    → 房间码输错了，或者房主已经关房；让房主重新建房发码。
+· 成员列表不刷新、歌不同步
+    → 服务器那边的反向代理没关缓冲，让服主看 README 的 Nginx 配置。
+
+—— 注意 ——
+
+· 这个配置只影响「一起听歌」，不影响网易云 / QQ / 酷狗的正常播放。
+· 歌曲音频不经过服务器，每人用自己的账号拉流，VIP 和地区版权各算各的。
+· 房间码等于房间钥匙，别发到公开群；服务器是我们自己搭的，别拿去给外人用。
+· 装好后建议和房主的客户端版本一致（1.7.0 才有成员控制和 QQ / 酷狗音源）。

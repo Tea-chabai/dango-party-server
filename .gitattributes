@@ -1,0 +1,11 @@
+# 统一换行符：Windows 批处理必须是 CRLF，否则 cmd 在某些分支上会出错
+* text=auto
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.conf text eol=lf
+*.service text eol=lf
+*.bat text eol=crlf
+*.txt text eol=crlf
