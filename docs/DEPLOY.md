@@ -56,16 +56,18 @@ relayUrl=https://...           # 真正的请求地址；留空则直连 databas
 node server.mjs                 # 监听 127.0.0.1:8787
 ```
 
-客户端 `config/dangomusic/firebase.properties`：
+启动时会自动生成一份玩家配置（含随机 apiKey）在 `data/firebase.properties`，
+把里面的地址改成下面这样即可（或者直接用启动日志打印的 apiKey）：
 
 ```properties
-apiKey=local-party
+apiKey=dango-xxxxxxxxxxxx      # 见启动日志 / data/apikey.txt
 databaseUrl=https://127.0.0.1:8787
 relayUrl=http://127.0.0.1:8787
 ```
 
 说明：`relayUrl` 走 `http://127.0.0.1`（客户端只对 127.0.0.1 / localhost 放行 http）；
 `databaseUrl` 只要以 `https://` 开头即可，实际不会用到它。
+想用固定口令 `apiKey=local-party`，启动时加 `PARTY_KEY=local-party`；想完全关掉校验就 `PARTY_KEY=none`。
 
 注意：别的电脑连不上 `127.0.0.1`；要给朋友用必须换下面任一方案。
 
@@ -347,7 +349,28 @@ PORT=8443 HOST=0.0.0.0 node server.mjs           # 换地址端口
 TLS_CERT=... TLS_KEY=... PORT=8443 node server.mjs   # 自带 TLS
 DATA_DIR=/opt/dango-party/data node server.mjs   # 数据目录
 QUIET=1 node server.mjs                          # 只打启动信息
+
+# 公网部署推荐：口令 + 公网地址，启动时就生成好玩家配置
+PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
 ```
+
+关于 apiKey（客户端配置里的 `apiKey` = 服务端口令）：
+
+| 怎么启动 | 行为 |
+| --- | --- |
+| 什么都不设 | **自动生成**随机口令，写进 `data/apikey.txt`（重启复用），并生成 `data/firebase.properties` |
+| `PARTY_KEY=xxx` | 用这个口令 |
+| `PARTY_KEY=none` | 关掉校验（谁都能匿名登录，只适合本机/内网测试） |
+| `PUBLIC_URL=https://…` | 把地址填进生成的那份配置，直接可以发给玩家 |
+
+所以「腐竹」的完整流程就是一条命令：
+
+```bash
+PUBLIC_URL=https://your-domain-or-ts.net node server.mjs
+# 日志：apiKey: dango-xxxx  /  玩家配置已生成：data/firebase.properties
+```
+
+把 `data/firebase.properties` 连同 `player/安装配置.bat` 打包发给玩家即可；换口令删掉 `data/apikey.txt` 再启动。
 
 完整列表：`node server.mjs --help`。systemd 单元见 [examples/dango-party.service](../examples/dango-party.service)。
 

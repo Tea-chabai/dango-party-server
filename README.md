@@ -33,15 +33,18 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 本机先验证（不用域名、不用 TLS）：
 
-1. 起服务。
-2. 配置写到游戏目录的 `config/dangomusic/firebase.properties`：
+1. 起服务。启动日志会打印 `apiKey: dango-xxxx`，并**自动生成**一份玩家配置
+   `data/firebase.properties`（apiKey 已经对好，只差地址）。
+2. 把那份配置改一下地址（本机就是 `https://127.0.0.1:8787` + `http://127.0.0.1:8787`），
+   放到游戏目录的 `config/dangomusic/firebase.properties`；或者直接用它：
 
    ```properties
-   apiKey=local-party
+   apiKey=dango-xxxx（照抄启动日志里的）
    databaseUrl=https://127.0.0.1:8787
    relayUrl=http://127.0.0.1:8787
    ```
 
+   （想固定成文档里的 `apiKey=local-party`，就在启动前设 `PARTY_KEY=local-party`。）
 3. 进游戏按 `M` → 左侧 `♬ 一起听歌` → 底部**「连接方式」选 `Direct`** → `Create a room`。
    服务器窗口打印 `put /rooms/D-XXXXX`、页面出现房间码，就通了。
 
@@ -170,16 +173,25 @@ curl https://myhost.tailxxxx.ts.net/healthz
 
 ### 4. 客户端配置
 
-把地址换成 `tailscale funnel status` 里显示的那个，**不带端口**：
+把地址换成 `tailscale funnel status` 里显示的那个，**不带端口**。
+最省事的是**让服务器自己生成**：启动时加 `PUBLIC_URL`，它会把 apiKey 和地址都填好，写进
+`data/firebase.properties`，直接发给玩家：
+
+```bash
+PUBLIC_URL=https://myhost.tailxxxx.ts.net node server.mjs
+# 日志里会打印：玩家配置已生成：data/firebase.properties
+```
+
+生成的配置长这样（apiKey 是服务器自动生成的随机口令，重启不变，存在 `data/apikey.txt`）：
 
 ```properties
-apiKey=local-party
+apiKey=dango-xxxxxxxxxxxx
 databaseUrl=https://myhost.tailxxxx.ts.net
 relayUrl=https://myhost.tailxxxx.ts.net
 ```
 
 Funnel 只支持 443 / 8443 / 10000，`funnel 8787` 会自动映射到 443。
-发给玩家照旧用 `player/` 里的 `安装配置.bat`，把两处地址换成你的 `ts.net` 域名。
+发给玩家照旧用 `player/` 里的 `安装配置.bat`（把它旁边的 `firebase.properties` 换成生成的那份）。
 
 ### 5. 日常维护
 
@@ -195,6 +207,7 @@ Funnel 只支持 443 / 8443 / 10000，`funnel 8787` 会自动映射到 443。
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
+| 登录被拒、日志 403 `invalid api key` | 客户端 `firebase.properties` 的 `apiKey` 和服务器 `data/apikey.txt` 里的不一致：把这个文件抄过去，或启动时 `PARTY_KEY=none` 关掉校验 |
 | `Funnel is not enabled on your tailnet` | 管理台 Access Controls 没开 `funnel` 属性，按提示链接授权 |
 | `tailnet has no HTTPS` / 证书报错 | 管理台 DNS 里 MagicDNS + HTTPS Certificates 没开 |
 | `502` / 网页打不开 | 本机 8787 没跑或端口不对：先 `curl http://127.0.0.1:8787/healthz` |
@@ -221,7 +234,7 @@ tailscale funnel status                            # 看目标端口对不对
 
 | 文件 | 作用 |
 | --- | --- |
-| `player/firebase.properties` | 把两处 `party.example.com` 改成你的服务器域名（用 Firebase 就换成 Firebase 的两个值） |
+| `player/firebase.properties` | 把两处 `party.example.com` 改成你的服务器域名（用 Firebase 就换成 Firebase 的两个值）；<br>**也可以直接用服务器自动生成的 `data/firebase.properties`**（apiKey 已对好） |
 | `player/安装配置.bat` | 玩家双击即装到 `.minecraft/config/dangomusic/`；PCL/HMCL 用户可把实例目录拖上去 |
 | `player/安装说明.txt` | 操作步骤、Direct 连接方式、常见问题 |
 

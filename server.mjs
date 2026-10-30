@@ -55,6 +55,10 @@ if (argv.includes('--help') || argv.includes('-h')) {
   HOST       监听地址（默认 127.0.0.1）
   DATA_DIR   数据目录（默认 ./data，里面有 party.json 和 secret）
   SECRET     令牌签名密钥（默认随机生成并存进 DATA_DIR/secret）
+  PARTY_KEY  共享口令；不设则自动生成随机口令存进 DATA_DIR/apikey.txt（重启复用），
+             设 none 关掉校验，设具体值就用它
+  PUBLIC_URL 公网地址（如 https://xxx.tailnet.ts.net）：填了就自动写进 data/firebase.properties，
+             直接发给玩家即可
   TLS_CERT   PEM 证书路径（和 TLS_KEY 一起给才会启用 https）
   TLS_KEY    PEM 私钥路径
   QUIET=1    只打印启动信息，不打印每次读写
@@ -79,6 +83,68 @@ const DATA_DIR = process.env.DATA_DIR || path.join(HERE, 'data')
 const DATA_FILE = path.join(DATA_DIR, 'party.json')
 const SECRET_FILE = path.join(DATA_DIR, 'secret')
 const QUIET = process.env.QUIET === '1'
+
+/**
+ * 共享口令（客户端 firebase.properties 里的 apiKey 必须和它一致）。
+ *   不设 PARTY_KEY      → 自动生成一个随机口令，存在 data/apikey.txt，重启复用（方便直接分发）
+ *   设 PARTY_KEY=xxx    → 用这个值
+ *   设 PARTY_KEY=none   → 关掉校验（谁都能匿名登录，仅本机测试用）
+ */
+const APIKEY_FILE = path.join(DATA_DIR, 'apikey.txt')
+
+function loadOrCreateKey() {
+  const explicit = (process.env.PARTY_KEY || '').trim()
+  if (explicit === 'none' || explicit === '0' || explicit === 'off') return ''
+  if (explicit) return explicit
+  try {
+    const saved = fs.readFileSync(APIKEY_FILE, 'utf8').trim()
+    if (saved) return saved
+  } catch {}
+  const key = 'dango-' + crypto.randomBytes(9).toString('base64url')
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.writeFileSync(APIKEY_FILE, key + '\n', { mode: 0o600 })
+  } catch (e) {
+    console.error('[!] 写不进去 ' + APIKEY_FILE + '：' + e.message + '（口令只在本次运行有效）')
+  }
+  return key
+}
+
+const PARTY_KEY = loadOrCreateKey()
+
+/** 公开地址（可选）：填了就写进给玩家分发的配置文件，例如 https://xxx.tailnet.ts.net */
+const PUBLIC_URL = (() => {
+  const raw = (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '')
+  if (!raw) return ''
+  if (/^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/.test(raw)) return raw
+  if (/^http:\/\/(127\.0\.0\.1|localhost)(:[0-9]{1,5})?$/.test(raw)) return raw
+  console.error('[!] PUBLIC_URL 格式不对（只接受 https://主机[:端口] 或本机 http://127.0.0.1[:端口]）：' + raw)
+  return ''
+})()
+
+/** 给玩家分发的配置文件：data/firebase.properties */
+function writePlayerConfig(url) {
+  const target = url || 'https://party.example.com'
+  const text = [
+    '# Dango Music 一起听歌 —— 玩家配置（服务器自动生成）',
+    '# 放到 <游戏目录>/config/dangomusic/firebase.properties',
+    '# apiKey 必须和服务器一致，否则登录会被拒（403）',
+    '',
+    'apiKey=' + (PARTY_KEY || 'local-party'),
+    'databaseUrl=' + target,
+    'relayUrl=' + target,
+    '',
+  ].join('\n')
+  const file = path.join(DATA_DIR, 'firebase.properties')
+  try {
+    fs.writeFileSync(file, text)
+    return file
+  } catch (e) {
+    console.error('[!] 写不进去 ' + file + '：' + e.message)
+    return ''
+  }
+}
+
 
 /** 客户端认的「中转正常」标记头（PartyHttp.RELAY_HEADER） */
 const RELAY_HEADER = 'X-Dango-Relay'
@@ -435,9 +501,16 @@ const handler = async (req, res) => {
     }
 
     // ------------------------------------------------------- 匿名登录 / 刷新令牌
+    // 设了 PARTY_KEY 之后，登录只认带正确 key 的请求（客户端配置里的 apiKey 就是它）。
+    // 这样即使域名被扫描器发现（ts.net 证书会进 CT 日志，必然会被扫），也发不出新身份。
     if (p.startsWith('/id/')) {
       if (!p.endsWith('/v1/accounts:signUp') && !p.endsWith(':signUp')) return fail(res, 404, 'not found')
       if (req.method !== 'POST') return fail(res, 405, 'method not allowed')
+      if (PARTY_KEY && q.get('key') !== PARTY_KEY) {
+        code = 403
+        log('signUp rejected: bad key')
+        return fail(res, 403, 'PERMISSION_DENIED: invalid api key')
+      }
       await readBody(req) // 请求体是 {"returnSecureToken":true}，这里不需要
       const uid = crypto.randomUUID()
       sendJson(res, 200, {
@@ -454,6 +527,10 @@ const handler = async (req, res) => {
 
     if (p.startsWith('/token/')) {
       if (req.method !== 'POST') return fail(res, 405, 'method not allowed')
+      if (PARTY_KEY && q.get('key') !== PARTY_KEY) {
+        code = 403
+        return fail(res, 403, 'PERMISSION_DENIED: invalid api key')
+      }
       const form = new URLSearchParams(await readBody(req))
       const uid = verifyRefresh(form.get('refresh_token'))
       if (!uid) return fail(res, 401, 'INVALID_REFRESH_TOKEN')
@@ -657,6 +734,19 @@ server.listen(PORT, HOST, () => {
     log(`  客户端 relayUrl 填 ${scheme}://<域名或 IP>:${actual}`)
   } else {
     log('  明文 http：本机测试可以；要给别的玩家用，请配 TLS_CERT/TLS_KEY 或放在 HTTPS 反代后面')
+  }
+  if (PARTY_KEY) {
+    log('  apiKey: ' + PARTY_KEY + '   （客户端 firebase.properties 里的 apiKey 必须和它一致）')
+    log('          已存在 ' + APIKEY_FILE + '，删掉它即可换新口令')
+  } else {
+    log('  apiKey 校验已关闭（PARTY_KEY=none）：谁都能匿名登录，只适合本机测试')
+  }
+  const cfgUrl = PUBLIC_URL || (TLS ? `${scheme}://127.0.0.1:${actual}` : '')
+  const cfgFile = writePlayerConfig(cfgUrl)
+  if (cfgFile) {
+    log('  玩家配置已生成：' + cfgFile)
+    if (!cfgUrl) log('    把里面的 party.example.com 换成你的公网地址（或用 PUBLIC_URL=... 启动，自动填好）')
+    log('    分发方式：把这份 firebase.properties 发给玩家，放到 <游戏目录>/config/dangomusic/ 即可')
   }
   if (process.env.TEST_PORT_READY === '1') console.log('PORT_READY ' + actual)
 })

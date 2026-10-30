@@ -35,18 +35,23 @@ function ok(name, cond, extra) {
 
 // ---------------------------------------------------------------- 启服务器
 
-function startServer() {
+function startServer(extraEnv = {}) {
   return new Promise((resolve, reject) => {
+    const env = {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: '0',
+      DATA_DIR,
+      QUIET: '1',
+      TEST_PORT_READY: '1',
+      // 测试默认固定口令；传 PARTY_KEY: undefined 可以测「自动生成」那条路
+      PARTY_KEY: KEY,
+      ...extraEnv,
+    }
+    for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k]
     const child = spawn(process.execPath, ['server.mjs'], {
       cwd: ROOT,
-      env: {
-        ...process.env,
-        HOST: '127.0.0.1',
-        PORT: '0',
-        DATA_DIR,
-        QUIET: '1',
-        TEST_PORT_READY: '1',
-      },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let out = ''
@@ -321,8 +326,6 @@ async function main() {
   hostSse.close()
   memberSse.close()
   await sleep(50)
-
-  console.log(`\n全部通过：${passed} 项`)
   return passed
 }
 
@@ -347,8 +350,78 @@ const server = await startServer()
 child = server.child
 BASE = server.base
 
+/** 额外的第 12 组：PARTY_KEY（共享口令）生效时，错误的 apiKey 拿不到身份 */
+async function testPartyKey() {
+  console.log('\n12) PARTY_KEY 共享口令')
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-key-'))
+  const srv = await startServer({ PARTY_KEY: 'test-key', DATA_DIR: dataDir })
+  const post = (key) =>
+    fetch(`${srv.base}/id/v1/accounts:signUp?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"returnSecureToken":true}',
+    })
+  try {
+    const wrong = await post('wrong-key')
+    ok('错误 apiKey 被拒（403）', wrong.status === 403, wrong.status)
+    const good = await post('test-key')
+    ok('正确 apiKey 可以通过', good.status === 200, good.status)
+    const health = await fetch(`${srv.base}/healthz`)
+    ok('健康检查仍然公开', health.status === 200, health.status)
+  } finally {
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
+/** 第 13 组：不设 PARTY_KEY 时自动生成口令 + 玩家配置 */
+async function testAutoKey() {
+  console.log('\n13) 自动生成 apiKey 与玩家配置')
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-auto-'))
+  const srv = await startServer({ PARTY_KEY: undefined, PUBLIC_URL: 'https://party.test', DATA_DIR: dataDir })
+  try {
+    const keyFile = path.join(dataDir, 'apikey.txt')
+    ok('生成了 data/apikey.txt', fs.existsSync(keyFile))
+    const key = fs.readFileSync(keyFile, 'utf8').trim()
+    ok('口令看起来是随机的', /^dango-[A-Za-z0-9_-]{8,}$/.test(key), key)
+
+    const cfgFile = path.join(dataDir, 'firebase.properties')
+    ok('生成了玩家配置 data/firebase.properties', fs.existsSync(cfgFile))
+    const cfg = fs.readFileSync(cfgFile, 'utf8')
+    ok('配置里的 apiKey 与口令一致', cfg.includes('apiKey=' + key), cfg)
+    ok('配置里填了 PUBLIC_URL', cfg.includes('relayUrl=https://party.test'), cfg)
+
+    const good = await fetch(`${srv.base}/id/v1/accounts:signUp?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"returnSecureToken":true}',
+    })
+    ok('用自动生成的口令能登录', good.status === 200, good.status)
+    const wrong = await fetch(`${srv.base}/id/v1/accounts:signUp?key=nope`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"returnSecureToken":true}',
+    })
+    ok('别的口令被拒', wrong.status === 403, wrong.status)
+  } finally {
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
 main()
+  .then(testPartyKey)
+  .then(testAutoKey)
   .then(() => {
+    console.log(`\n全部通过：${passed} 项`)
     cleanup()
     process.exit(0)
   })
