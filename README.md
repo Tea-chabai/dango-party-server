@@ -198,8 +198,16 @@ Funnel 只支持 443 / 8443 / 10000，`funnel 8787` 会自动映射到 443。
 | `Funnel is not enabled on your tailnet` | 管理台 Access Controls 没开 `funnel` 属性，按提示链接授权 |
 | `tailnet has no HTTPS` / 证书报错 | 管理台 DNS 里 MagicDNS + HTTPS Certificates 没开 |
 | `502` / 网页打不开 | 本机 8787 没跑或端口不对：先 `curl http://127.0.0.1:8787/healthz` |
+| `curl` 一直挂着不返回（TLS 握手成功、但没有 HTTP 状态码） | 节点那边没人接：`funnel status` 里的目标端口要和 `server.mjs` 实际监听一致，且服务确实在跑 |
 | 浏览器能开、游戏里连不上 | `relayUrl` 写成了带端口，或「连接方式」选了代理；改成不带端口 + `Direct` |
 | 用一阵突然全断 | 机器睡眠/关机、或 Tailscale 退出；`tailscale status` 看节点是否在线 |
+
+判断"是不是真的通了"最省事的两条命令：
+
+```bash
+curl -sv https://<机器>.<tailnet>.ts.net/healthz   # 看 appconnect 之后有没有 HTTP 状态行
+tailscale funnel status                            # 看目标端口对不对
+```
 
 ### 7. 注意
 
