@@ -232,61 +232,23 @@ relayUrl=https://party.example.com
 
 ## 2.7 Tailscale Funnel（零证书、零端口、不用域名）
 
-**原理**：你的机器出站连到 Tailscale 的边缘节点，公网访问 `https://<机器>.<tailnet>.ts.net`
-时由 Tailscale 终止 TLS，再转发给你本机的端口。所以**不用开任何入站端口、不用公网 IP、不用证书**。
+**完整步骤（准备 / Windows·Linux 命令 / 验证 / 排错）写在 README 的
+「用 Tailscale Funnel 部署（保姆级）」一节**，这里只记和本项目相关、容易踩的点：
 
-### 一次性准备
+- **原理**：机器出站连到 Tailscale 边缘，公网访问 `https://<机器>.<tailnet>.ts.net` 时由 Tailscale
+  终止 TLS 再转发到本机端口 —— 所以不用开入站端口、不用公网 IP、不用证书，也不占本机 80/443。
+- 只能暴露 **443 / 8443 / 10000**；`tailscale funnel --bg 8787` 会自动映射到 443，客户端**不写端口**。
+- 客户端配置：
 
-1. 注册 Tailscale（免费档够用），在服务器上装好并登录：
-   - **Windows**：装 [Tailscale for Windows](https://tailscale.com/download/windows)，托盘右键登录；
-     CLI 在 `C:\Program Files\Tailscale\tailscale.exe`
-   - **Linux**：`curl -fsSL https://tailscale.com/install.sh | sh` 然后 `sudo tailscale up`
-2. 管理台 → **DNS**：打开 **MagicDNS** 和 **HTTPS Certificates**（Funnel 需要能签 `ts.net` 证书）。
-3. 管理台 → **Access Controls**：给这台机器开 Funnel（`funnel` 节点属性）；
-   或者第一次执行 `tailscale funnel` 时，按它打印的链接点开授权即可。
+  ```properties
+  apiKey=local-party
+  databaseUrl=https://myhost.tailxxxx.ts.net
+  relayUrl=https://myhost.tailxxxx.ts.net
+  ```
 
-### 暴露本机 8787
-
-```bash
-tailscale funnel 8787            # 前台运行，Ctrl+C 取消
-tailscale funnel --bg 8787       # 后台常驻（推荐）
-tailscale funnel status          # 看当前地址与映射
-tailscale funnel reset           # 全部关掉
-```
-
-Windows 上（PowerShell，管理员）：
-
-```powershell
-& "C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8787
-& "C:\Program Files\Tailscale\tailscale.exe" funnel status
-```
-
-### 验证
-
-```bash
-curl https://<机器名>.<tailnet>.ts.net/healthz
-# {"ok":true,"uptimeSec":3,"rooms":0,"listeners":0}
-```
-
-### 客户端配置
-
-把地址换成 `tailscale funnel status` 里显示的那个（**不带端口**）：
-
-```properties
-apiKey=local-party
-databaseUrl=https://myhost.tailxxxx.ts.net
-relayUrl=https://myhost.tailxxxx.ts.net
-```
-
-### 注意
-
-- TLS 由 Tailscale 自动签（公共受信），不需要 `TLS_CERT`，服务继续只监听 `127.0.0.1:8787`；
-- 只能暴露 **443 / 8443 / 10000**，`funnel 8787` 自动映射到 443，所以客户端不写端口；
-- 它走的是出站连接，**不会占用本机的 80/443**，和你的 MC 服务器、网站都不冲突；
-- 流量走中继，多几十毫秒延迟；本项目有 `clock` 校时，够用；
-- `--bg` 的设置存在节点状态里，Tailscale 服务开机自启就会恢复；Tailscale 退出/机器关机则全断；
-- 地址由「机器名 + tailnet 名」组成，任何一个改了域名就变，玩家配置要跟着更新；
-- 官方定位是个人小流量实验，别当生产服务，也别把地址贴到公开群。
+- `--bg` 存在节点状态里，Tailscale 服务开机自启会恢复；Tailscale 退出/机器关机则全断。
+- 地址由「机器名 + tailnet 名」组成，任何一个改了域名就变，玩家配置要跟着更新。
+- 流量走中继多几十毫秒延迟，本项目有 `clock` 校时，够用。
 
 ---
 

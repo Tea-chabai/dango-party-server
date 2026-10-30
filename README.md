@@ -65,6 +65,7 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 **完整的服务器命令、每种方案对应的客户端 `firebase.properties` 原文、注意事项**
 都在 **[docs/DEPLOY.md](docs/DEPLOY.md)**（2.1 ~ 2.10 节，可整段复制）。
+最省事的 **Tailscale Funnel** 因为最常用，完整走法在下面单独写了一节。
 
 ### 三种最常见的配置原文
 
@@ -109,6 +110,86 @@ relayUrl=
 - **SSE 必须不缓冲**：Nginx `proxy_buffering off`、Caddy `flush_interval -1`（Node 直出 / 隧道没这问题）；
 - **6 天 IP 证书必须自动续期**，一次失败就全断；
 - **`firebase_auth.json` 不能进整合包**，见下一节。
+
+## 用 Tailscale Funnel 部署（保姆级）
+
+推荐给「私人服 + 几个朋友」：不用域名、不用证书、不用开端口，一条命令拿到
+`https://<机器>.<tailnet>.ts.net`。其它方案见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
+**原理**：你的机器出站连到 Tailscale 边缘，公网访问时由 Tailscale 终止 TLS 再转发给本机 8787，
+所以不占本机 80/443，和 MC 服务器、网站都不冲突，也不用改防火墙。
+
+### 1. 一次性准备（约 5 分钟）
+
+1. 注册 Tailscale（免费档够用），在**跑 server.mjs 的那台机器**上安装并登录：
+   - **Windows**：装 [Tailscale for Windows](https://tailscale.com/download/windows)，托盘图标登录；
+     CLI 在 `C:\Program Files\Tailscale\tailscale.exe`
+   - **Linux**：`curl -fsSL https://tailscale.com/install.sh | sh`，然后 `sudo tailscale up`
+2. 管理台 → **DNS**：打开 **MagicDNS** 和 **HTTPS Certificates**（不开会报 `tailnet has no HTTPS`）
+3. 管理台 → **Access Controls**：给这台机器开 Funnel（`funnel` 节点属性）。
+   第一次执行命令时它也会打印一个授权链接，点开同意即可。
+
+### 2. 暴露本机 8787
+
+先确认服务在跑（日志里是 `listening on http://127.0.0.1:8787`），然后：
+
+```bash
+tailscale funnel --bg 8787      # 后台常驻（推荐）
+tailscale funnel status         # 看地址，形如 https://myhost.tailxxxx.ts.net
+```
+
+Windows PowerShell（管理员）：
+
+```powershell
+& "C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8787
+& "C:\Program Files\Tailscale\tailscale.exe" funnel status
+```
+
+### 3. 验证
+
+```bash
+curl https://myhost.tailxxxx.ts.net/healthz
+# {"ok":true,"uptimeSec":3,"rooms":0,"listeners":0}
+```
+
+### 4. 客户端配置
+
+把地址换成 `tailscale funnel status` 里显示的那个，**不带端口**：
+
+```properties
+apiKey=local-party
+databaseUrl=https://myhost.tailxxxx.ts.net
+relayUrl=https://myhost.tailxxxx.ts.net
+```
+
+Funnel 只支持 443 / 8443 / 10000，`funnel 8787` 会自动映射到 443。
+发给玩家照旧用 `player/` 里的 `安装配置.bat`，把两处地址换成你的 `ts.net` 域名。
+
+### 5. 日常维护
+
+| 想做的事 | 命令 |
+| --- | --- |
+| 看当前映射 / 地址 | `tailscale funnel status` |
+| 关掉 | `tailscale funnel reset` |
+| 换了 server.mjs 的端口 | 先 `reset`，再 `tailscale funnel --bg 新端口` |
+| 重启机器 | 不用管：`--bg` 存在节点状态里，Tailscale 服务自启会恢复 |
+| 改了机器名或 tailnet 名 | 域名会变，玩家配置要跟着更新 |
+
+### 6. 排错
+
+| 现象 | 原因 / 处理 |
+| --- | --- |
+| `Funnel is not enabled on your tailnet` | 管理台 Access Controls 没开 `funnel` 属性，按提示链接授权 |
+| `tailnet has no HTTPS` / 证书报错 | 管理台 DNS 里 MagicDNS + HTTPS Certificates 没开 |
+| `502` / 网页打不开 | 本机 8787 没跑或端口不对：先 `curl http://127.0.0.1:8787/healthz` |
+| 浏览器能开、游戏里连不上 | `relayUrl` 写成了带端口，或「连接方式」选了代理；改成不带端口 + `Direct` |
+| 用一阵突然全断 | 机器睡眠/关机、或 Tailscale 退出；`tailscale status` 看节点是否在线 |
+
+### 7. 注意
+
+- 证书由 Tailscale 自动签（公共受信），**不用配 `TLS_CERT`**；
+- 流量走 Tailscale 中继，多几十毫秒延迟；一起听歌靠服务端校时补偿，基本无感；
+- 地址就是房间入口，别贴到公开群；官方定位是个人小流量实验，别当生产服务。
 
 ## 发给玩家
 
