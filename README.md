@@ -45,13 +45,78 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 3. 进游戏按 `M` → 左侧 `♬ 一起听歌` → 底部**「连接方式」选 `Direct`** → `Create a room`。
    服务器窗口打印 `put /rooms/D-XXXXX`、页面出现房间码，就通了。
 
+## 部署方案（多选一）
+
+客户端只要求一个**受信任证书的 https 入口**（`127.0.0.1` / `localhost` 例外，它们允许 http），
+至于这个入口由谁提供——Node 自己、Caddy/Nginx、隧道、还是 Google——客户端不关心。
+所以下面这些都能用，按自己的条件挑一个：
+
+| 方案 | 要域名 | 要证书 | 要开端口 | 客户端 `relayUrl` |
+| --- | --- | --- | --- | --- |
+| **本机测试** | — | — | — | `http://127.0.0.1:8787` |
+| **Firebase**（不部署本项目） | 不要 | 不要 | 不要 | 留空 |
+| **Node 自带 TLS + IP 证书** | 不要 | LE 6 天短期 | 80 + 8443 | `https://<公网IP>:8443` |
+| **Node 自带 TLS + 域名证书** | 要 | acme / certbot | 80 或 DNS | `https://party.example.com:8443` |
+| **Caddy 反代** | 要 | 自动 | 80 / 443 | `https://party.example.com` |
+| **Nginx 反代** | 要 | 自备 | 80 / 443 | `https://party.example.com` |
+| **Tailscale Funnel** | 不要 | 自动 | 不要 | `https://<机器>.<tailnet>.ts.net` |
+| **Cloudflare Tunnel** | 要 | 自动 | 不要 | `https://party.example.com` |
+| **Cloudflare 橙云** | 要 | 自动 | 80/443（或 8443） | `https://party.example.com` |
+
+**完整的服务器命令、每种方案对应的客户端 `firebase.properties` 原文、注意事项**
+都在 **[docs/DEPLOY.md](docs/DEPLOY.md)**（2.1 ~ 2.10 节，可整段复制）。
+
+### 三种最常见的配置原文
+
+本机测试：
+
+```properties
+apiKey=local-party
+databaseUrl=https://127.0.0.1:8787
+relayUrl=http://127.0.0.1:8787
+```
+
+公网 https（IP 证书 / 域名 / 反代 / 隧道都一样，只是地址不同）：
+
+```properties
+apiKey=local-party
+databaseUrl=https://party.example.com
+relayUrl=https://party.example.com
+```
+
+直接用 Firebase（服务器都不用开）：
+
+```properties
+apiKey=AIzaSy...
+databaseUrl=https://xxx-default-rtdb.firebaseio.com
+relayUrl=
+```
+
+> 规则：`relayUrl` 只接受 `https://主机[:端口]` 或本机 `http://127.0.0.1[:端口]` / `http://localhost[:端口]`；
+> `databaseUrl` 必须以 `https://` 开头；配置文件放在**游戏目录**里，优先于 jar 内自带的配置。
+
+### 一句话选型
+
+- 只想先跑起来 → **本机** / **Tailscale Funnel**；
+- 有公网 IP、想长期稳 → **Node 自带 TLS + IP 证书**（记得自动续期）；
+- 玩家都在墙外、懒得运维 → **Firebase**；
+- 想隐藏源站 / 抗打 → **Cloudflare**（需要域名）。
+
+### 几个共同的坑
+
+- **内网 `http://192.168.x.x:8787` 不行**：客户端只放行 https，`http://` 只对 `127.0.0.1` / `localhost` 生效；
+- **自签证书不行**：客户端是 Java，默认不信任自签 CA；
+- **SSE 必须不缓冲**：Nginx `proxy_buffering off`、Caddy `flush_interval -1`（Node 直出 / 隧道没这问题）；
+- **6 天 IP 证书必须自动续期**，一次失败就全断；
+- **`firebase_auth.json` 不能进整合包**，见下一节。
+
 ## 发给玩家
 
 `player/` 目录就是给玩家的包，改一处域名后打包发出去：
 
 | 文件 | 作用 |
 | --- | --- |
-| `player/firebase.properties` | 把两处 `party.example.com` 改成你的服务器域名 |
+| `player/firebase.properties` | 把两处 `party.example.com` 改成你的服务器域名（用 Firebase 就换成 Firebase 的两个值） |
 | `player/安装配置.bat` | 玩家双击即装到 `.minecraft/config/dangomusic/`；PCL/HMCL 用户可把实例目录拖上去 |
 | `player/安装说明.txt` | 操作步骤、Direct 连接方式、常见问题 |
 
@@ -92,175 +157,6 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 **如果已经打包发出去了**：把上述文件从包里删掉；服务器端再删一次 `data/secret`（所有人重新登录、
 旧令牌全部失效），否则泄露的 `refreshToken` 依然能用。
-
-
-## 公网部署
-
-**不一定需要 Nginx。** 客户端只要求一个**受信任证书的 https 入口**（`127.0.0.1` / `localhost` 例外），
-至于这个 https 是谁提供的，它不关心。
-
-> 最省事的「不用自己运维」路线其实是**直接用 Firebase**（mod 原本的后端）：不用域名、不用证书、
-> 不用开端口，`databaseUrl` 本身就是 Google 的受信 https。代价是数据在 Google、国内直连常不通
-> （需要代理，或者自己架个中转填到 `relayUrl`）。本节讲的是「不想依赖 Google」时的自建办法。
-
-| 方案 | 适合 | 说明 |
-| --- | --- | --- |
-| **Node 自带 TLS** | 机器上不想再装东西 | `TLS_CERT` / `TLS_KEY` 直接起 https，见下 |
-| **Caddy** | 想要证书自动续期 | 三行 Caddyfile，见 `examples/Caddyfile` |
-| **Nginx** | 已经有 Nginx 在跑 | `examples/nginx.conf`，记得关 SSE 缓冲 |
-| **Cloudflare Tunnel / frp / Tailscale** | 没公网 IP、不想开端口 | 隧道给一个受信 https 域名 |
-
-### 先解决证书：有公网 IP 但没有受信任证书
-
-**从 2026 年起 Let's Encrypt 可以给公网 IP 签证书了**（IP 证书强制 6 天有效期），
-所以有公网 IP 时不一定非要域名。
-
-| 情况 | 做法 |
-| --- | --- |
-| 有公网 IP，**80 端口可达** | 直接签 IP 证书（见下），客户端填 `https://<你的IP>:8443` |
-| 有公网 IP，但 **80 不通**（家用宽带常见） | 弄个域名走 DNS-01（不占端口）：`CF_Token=xxx acme.sh --issue --dns dns_cf -d party.example.com` |
-| 只有内网 IP / 不想开端口 | 隧道：`tailscale funnel --bg 8787`（给一个受信的 `*.ts.net`），或 Cloudflare Tunnel |
-
-#### 用 Cloudflare 的话
-
-**Cloudflare 的橙云代理和 Cloudflare Tunnel 都需要一个托管在 Cloudflare 的域名**（域名的 NS 指过去），
-裸 IP 加不进去。没有域名时只有一种 Cloudflare 用法——`cloudflared tunnel --url` 的快速隧道：
-
-```bash
-cloudflared tunnel --url http://127.0.0.1:8787   # 给一个受信的 https://xxx.trycloudflare.com
-```
-
-它可以马上用（客户端 relayUrl 填那个地址），但**地址每次重启都变**，只适合临时让朋友连一下，
-不适合长期发给玩家。
-
-有了域名之后走 Cloudflare，几个和本项目相关的点：
-
-- 客户端 `relayUrl=https://party.example.com`（443，不用写端口）；橙云回源只支持
-  [Cloudflare 指定的端口](https://developers.cloudflare.com/fundamentals/reference/network-ports/)，本项目的 8443 在列表内。
-- **给 `/db/*` 加一条 Bypass Cache 的 Cache Rule**（我们的响应已经带 `Cache-Control: no-store`，
-  这条是双保险）；别开对 API 的缓存优化，否则 SSE 和轮询会拿到旧数据。
-- Cloudflare 对空闲连接有 100 秒超时，本项目每 25 秒发一次 SSE 心跳，不会被掐。
-- 想完全不开端口就用 Tunnel（`cloudflared tunnel run` + 一个子域公共主机名），源站只监听 127.0.0.1。
-
-#### IP 证书（不需要域名）
-
-```bash
-# Certbot ≥ 5.4（--ip-address 是 5.3 加的，webroot 支持 IP 要 5.4）
-certbot --version
-
-# 先用 staging 试通，再删掉 --staging 拿正式证书
-sudo certbot certonly --staging \
-  --preferred-profile shortlived \
-  --standalone \
-  --ip-address 203.0.113.10
-
-# 正式签发
-sudo certbot certonly \
-  --preferred-profile shortlived \
-  --standalone \
-  --ip-address 203.0.113.10
-```
-
-产物在 `/etc/letsencrypt/live/<IP>/fullchain.pem` 和 `privkey.pem`。要点：
-
-- **只有 6 天有效期**（`shortlived` 是 IP 证书的硬性要求），必须让 `certbot renew` 自动跑，
-  并且配上续期后重启服务的钩子，否则一周后玩家就连不上：
-  ```bash
-  certbot reconfigure --preferred-profile shortlived --ip-address 203.0.113.10 \
-    --deploy-hook 'systemctl restart dango-party'
-  ```
-- 验证走 **HTTP-01（80 端口）**，签发和每次续期都需要 80 可达；`--standalone` 会临时占用 80，
-  如果 80 上有别的服务，改用 `--webroot -w /var/www/html`。
-- 客户端直接填 `https://203.0.113.10:8443`（IP 形式的 https 客户端接受）。
-- 嫌 6 天太紧（一次续期失败就断服），就用域名 + DNS-01，90/45 天更稳。
-
-#### 域名证书
-
-拿到证书后起服务：
-
-```bash
-# acme.sh 的产物在 ~/.acme.sh/<域名>/；certbot 在 /etc/letsencrypt/live/<域名>/
-TLS_CERT=/root/.acme.sh/party.example.com/fullchain.cer \
-TLS_KEY=/root/.acme.sh/party.example.com/party.example.com.key \
-HOST=0.0.0.0 PORT=8443 node server.mjs
-```
-
-客户端 `relayUrl=https://party.example.com:8443`（走隧道的话通常是 `https://xxx.ts.net`，不用带端口）。
-
-别用自签证书：客户端是 Java，默认不信任自签 CA，除非给每台玩家的 JVM 导入证书（`keytool -importcert`），
-不值得。
-
-### 方案 A：让 server.mjs 自己上 TLS（不用反代）
-
-```bash
-# 1. 签证书（二选一）
-acme.sh --issue --standalone -d party.example.com          # 或者
-certbot certonly --standalone -d party.example.com
-
-# 2. 直接起 https（443 需要 root 或 CAP_NET_BIND_SERVICE，用 8443 最省事）
-HOST=0.0.0.0 PORT=8443 \
-  TLS_CERT=/etc/letsencrypt/live/party.example.com/fullchain.pem \
-  TLS_KEY=/etc/letsencrypt/live/party.example.com/privkey.pem \
-  node server.mjs
-```
-
-客户端配置写 `relayUrl=https://party.example.com:8443`（`relayUrl` 支持带端口）。
-证书续期后重启服务即可（`systemctl restart`）。
-
-省掉反代的好处：没有 SSE 缓冲的坑，少一层配置；坏处是证书续期要自己管。
-
-### 方案 B / C：Caddy 或 Nginx
-
-```
-玩家客户端 ──HTTPS──▶ Nginx / Caddy ──HTTP──▶ 127.0.0.1:8787 (server.mjs) ──▶ data/party.json
-```
-
-- `examples/nginx.conf`、`examples/Caddyfile`：现成配置，**关键是关掉 SSE 缓冲**
-  （`proxy_buffering off` / `flush_interval -1`），否则成员列表和进度会卡住不更新。
-- `examples/dango-party.service`：systemd，含基本加固（只允许写 `data/`）。
-- 环境变量：`PORT` / `HOST` / `DATA_DIR` / `SECRET` / `TLS_CERT` / `TLS_KEY` / `QUIET=1`，
-  `node server.mjs --help` 有完整说明。
-- 数据：`data/party.json`（房间）+ `data/secret`（令牌签名密钥）。删掉 `party.json` 等于清空所有房间；
-  删掉 `secret` 只影响每个人的登录态（会重新匿名登录一次）。
-
-### 方案 D：Tailscale Funnel（零证书、零端口、不用域名）
-
-适合「私人服 + 几个朋友」，配置成本最低的一条路：
-
-```bash
-tailscale up                          # 登录自己的 tailnet
-sudo tailscale funnel --bg 8787       # 把本机 8787 暴露出去
-tailscale funnel status               # 查看地址，形如 https://<机器名>.<tailnet>.ts.net
-```
-
-客户端写 `relayUrl=https://<机器名>.<tailnet>.ts.net`（不用写端口），`databaseUrl` 填同一个。
-server.mjs 继续只监听 `127.0.0.1:8787`，不用改、不用证书、不用开防火墙。
-
-- TLS 由 Tailscale 自动签（公共受信），所以客户端能过 Java 的证书校验。
-- 只能暴露 **443 / 8443 / 10000**；`funnel 8787` 会自动映射到 443。
-- 流量走 Tailscale 的中继，会多几十毫秒延迟；一起听歌只同步心跳和进度，且服务端有 `clock` 校时，
-  实测够用。
-- 第一次用要在管理台给节点开 Funnel（Access controls 里的 `funnel` 属性），命令会打印需要点的链接。
-- 定位是个人小流量：机器或 Tailscale 掉线就全断；地址按「机器名 + tailnet 名」生成，换机器会变。
-- 见 [Tailscale Funnel 文档](https://tailscale.com/kb/1223/funnel)。
-
-### ⚠️ 内网直接 `http://192.168.x.x:8787` 不行
-
-客户端的 `relayUrl` 只接受 `https://…`，`http://` 只放行 `127.0.0.1` / `localhost`。所以「内网 IP + http」这条路走不通。
-
-内网也想用的话，两个办法：
-
-- **Cloudflare Tunnel / frp**：隧道给你一个受信的 https 域名，不用公网 IP、不用开端口；
-- **给一个解析到内网 IP 的域名签证书**：用 DNS-01（`acme.sh --issue --dns dns_cf -d party.party.lan`）签，
-  不占 80 端口，然后 `TLS_CERT`/`TLS_KEY` 起在 8443，玩家配 `https://party.party.lan:8443`。
-  自签证书不行——客户端是 Java，默认不信任自签 CA。
-
-部署完自检（把域名换成你的）：
-
-```bash
-curl -s https://party.example.com/healthz
-# {"ok":true,"uptimeSec":42,"rooms":0,"listeners":0}
-```
 
 ## 工作原理
 
@@ -307,8 +203,9 @@ DangoMusic 的同步层是抽象的（`PartyTransport`），默认实现是个�
 ## 项目结构
 
 ```
-server.mjs                单文件服务器（HTTP + ETag + SSE + 权限 + 落盘）
+server.mjs                单文件服务器（HTTP + ETag + SSE + 权限 + 落盘 + 可选 TLS）
 test/protocol.mjs         协议一致性测试（npm test，自动拉起服务器）
+docs/DEPLOY.md            部署方案手册：每种方案的服务器命令 + 客户端配置原文
 docs/PROTOCOL.md          协议说明：客户端到底发了什么、服务器该回什么
 examples/                 Nginx / Caddy / systemd 配置
 player/                   给玩家的配置包（改成你的域名后发出去）
