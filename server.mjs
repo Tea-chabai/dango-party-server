@@ -29,9 +29,10 @@
  */
 'use strict'
 
-import http from 'node:http'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import http from 'node:http'
+import https from 'node:https'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -44,13 +45,18 @@ if (argv.includes('--help') || argv.includes('-h')) {
 用法:
   node server.mjs                 默认监听 127.0.0.1:8787，数据存在 ./data
   PORT=9000 node server.mjs       换端口（PORT=0 由系统分配，启动后打印实际端口）
-  HOST=0.0.0.0 node server.mjs    监听所有网卡（生产环境请放在 HTTPS 反代后面）
+  HOST=0.0.0.0 node server.mjs    监听所有网卡
+
+  # 自带 TLS（不需要 Nginx / Caddy）：证书可以用 acme.sh / certbot 签
+  TLS_CERT=/path/fullchain.pem TLS_KEY=/path/privkey.pem PORT=8443 node server.mjs
 
 环境变量:
   PORT       监听端口（默认 8787）
   HOST       监听地址（默认 127.0.0.1）
   DATA_DIR   数据目录（默认 ./data，里面有 party.json 和 secret）
   SECRET     令牌签名密钥（默认随机生成并存进 DATA_DIR/secret）
+  TLS_CERT   PEM 证书路径（和 TLS_KEY 一起给才会启用 https）
+  TLS_KEY    PEM 私钥路径
   QUIET=1    只打印启动信息，不打印每次读写
 
 接口（给 Dango Music 客户端用，等价于 Firebase 实时数据库的一小部分）:
@@ -410,7 +416,7 @@ function parseJson(text, what) {
   }
 }
 
-const server = http.createServer(async (req, res) => {
+const handler = async (req, res) => {
   const started = now()
   const url = new URL(req.url, 'http://localhost')
   const p = url.pathname
@@ -557,7 +563,25 @@ const server = http.createServer(async (req, res) => {
   } finally {
     log(`[${code}] ${req.method} ${p}${q.get('auth') ? '' : ''} ${now() - started}ms`)
   }
-})
+}
+
+// 有证书就直接用 Node 自己终止 TLS（不用 Nginx / Caddy）；没有就走明文 http（本机测试 / 反代后面）
+const TLS_CERT = process.env.TLS_CERT || ''
+const TLS_KEY = process.env.TLS_KEY || ''
+const TLS = Boolean(TLS_CERT && TLS_KEY)
+
+function loadTlsOptions() {
+  try {
+    return { cert: fs.readFileSync(TLS_CERT), key: fs.readFileSync(TLS_KEY) }
+  } catch (e) {
+    console.error('[X] 读不到证书文件：' + e.message)
+    console.error('    TLS_CERT=' + TLS_CERT)
+    console.error('    TLS_KEY=' + TLS_KEY)
+    process.exit(1)
+  }
+}
+
+const server = TLS ? https.createServer(loadTlsOptions(), handler) : http.createServer(handler)
 
 function openStream(req, res, a, uid) {
   res.writeHead(200, baseHeaders({
@@ -624,8 +648,15 @@ server.on('error', (e) => {
 
 server.listen(PORT, HOST, () => {
   const actual = server.address().port
-  log(`Dango party server listening on http://${HOST}:${actual}`)
+  const scheme = TLS ? 'https' : 'http'
+  log(`Dango party server listening on ${scheme}://${HOST}:${actual}`)
   log('  /id/v1/accounts:signUp  /token/v1/token  /db/<path>.json')
   log('  data: ' + DATA_FILE)
+  if (TLS) {
+    log('  TLS: ' + TLS_CERT)
+    log(`  客户端 relayUrl 填 ${scheme}://<域名或 IP>:${actual}`)
+  } else {
+    log('  明文 http：本机测试可以；要给别的玩家用，请配 TLS_CERT/TLS_KEY 或放在 HTTPS 反代后面')
+  }
   if (process.env.TEST_PORT_READY === '1') console.log('PORT_READY ' + actual)
 })

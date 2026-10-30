@@ -29,6 +29,16 @@ jobs:
           node server.mjs --version
           node server.mjs --help
 
+      - name: 自带 TLS 模式（不用反代）
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 1 -subj '/CN=localhost'
+          TLS_CERT=cert.pem TLS_KEY=key.pem PORT=9443 QUIET=1 node server.mjs &
+          sleep 1
+          curl -sk --fail https://127.0.0.1:9443/healthz
+          curl -sk --fail -X POST 'https://127.0.0.1:9443/id/v1/accounts:signUp?key=k' \
+            -H 'Content-Type: application/json' -d '{"returnSecureToken":true}'
+          kill %1
+
       - name: 端口占用时有友好提示
         run: |
           node server.mjs &

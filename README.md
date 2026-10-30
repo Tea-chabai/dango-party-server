@@ -96,20 +96,61 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 ## 公网部署
 
-客户端只接受 https（`127.0.0.1` / `localhost` 例外），所以要把服务放在 TLS 反代后面：
+**不一定需要 Nginx。** 客户端只要求一个**受信任证书的 https 入口**（`127.0.0.1` / `localhost` 例外），
+至于这个 https 是谁提供的，它不关心。
+
+| 方案 | 适合 | 说明 |
+| --- | --- | --- |
+| **Node 自带 TLS** | 机器上不想再装东西 | `TLS_CERT` / `TLS_KEY` 直接起 https，见下 |
+| **Caddy** | 想要证书自动续期 | 三行 Caddyfile，见 `examples/Caddyfile` |
+| **Nginx** | 已经有 Nginx 在跑 | `examples/nginx.conf`，记得关 SSE 缓冲 |
+| **Cloudflare Tunnel / frp / Tailscale** | 没公网 IP、不想开端口 | 隧道给一个受信 https 域名 |
+
+### 方案 A：让 server.mjs 自己上 TLS（不用反代）
+
+```bash
+# 1. 签证书（二选一）
+acme.sh --issue --standalone -d party.example.com          # 或者
+certbot certonly --standalone -d party.example.com
+
+# 2. 直接起 https（443 需要 root 或 CAP_NET_BIND_SERVICE，用 8443 最省事）
+HOST=0.0.0.0 PORT=8443 \
+  TLS_CERT=/etc/letsencrypt/live/party.example.com/fullchain.pem \
+  TLS_KEY=/etc/letsencrypt/live/party.example.com/privkey.pem \
+  node server.mjs
+```
+
+客户端配置写 `relayUrl=https://party.example.com:8443`（`relayUrl` 支持带端口）。
+证书续期后重启服务即可（`systemctl restart`）。
+
+省掉反代的好处：没有 SSE 缓冲的坑，少一层配置；坏处是证书续期要自己管。
+
+### 方案 B / C：Caddy 或 Nginx
 
 ```
 玩家客户端 ──HTTPS──▶ Nginx / Caddy ──HTTP──▶ 127.0.0.1:8787 (server.mjs) ──▶ data/party.json
 ```
 
-- `examples/nginx.conf`、`examples/Caddyfile`：现成反代配置，**关键是关掉 SSE 缓冲**
+- `examples/nginx.conf`、`examples/Caddyfile`：现成配置，**关键是关掉 SSE 缓冲**
   （`proxy_buffering off` / `flush_interval -1`），否则成员列表和进度会卡住不更新。
 - `examples/dango-party.service`：systemd，含基本加固（只允许写 `data/`）。
-- 环境变量：`PORT` / `HOST` / `DATA_DIR` / `SECRET` / `QUIET=1`，`node server.mjs --help` 有完整说明。
+- 环境变量：`PORT` / `HOST` / `DATA_DIR` / `SECRET` / `TLS_CERT` / `TLS_KEY` / `QUIET=1`，
+  `node server.mjs --help` 有完整说明。
 - 数据：`data/party.json`（房间）+ `data/secret`（令牌签名密钥）。删掉 `party.json` 等于清空所有房间；
   删掉 `secret` 只影响每个人的登录态（会重新匿名登录一次）。
 
-部署完自检：
+### ⚠️ 内网直接 `http://192.168.x.x:8787` 不行
+
+客户端的 `relayUrl` 只接受 `https://…`，`http://` 只放行 `127.0.0.1` / `localhost`。所以「内网 IP + http」这条路走不通。
+
+内网也想用的话，两个办法：
+
+- **Cloudflare Tunnel / frp**：隧道给你一个受信的 https 域名，不用公网 IP、不用开端口；
+- **给一个解析到内网 IP 的域名签证书**：用 DNS-01（`acme.sh --issue --dns dns_cf -d party.party.lan`）签，
+  不占 80 端口，然后 `TLS_CERT`/`TLS_KEY` 起在 8443，玩家配 `https://party.party.lan:8443`。
+  自签证书不行——客户端是 Java，默认不信任自签 CA。
+
+部署完自检（把域名换成你的）：
 
 ```bash
 curl -s https://party.example.com/healthz
