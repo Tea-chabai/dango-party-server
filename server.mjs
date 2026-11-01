@@ -57,10 +57,14 @@ if (argv.includes('--help') || argv.includes('-h')) {
   SECRET     令牌签名密钥（默认随机生成并存进 DATA_DIR/secret）
   PARTY_KEY  共享口令；不设则自动生成随机口令存进 DATA_DIR/apikey.txt（重启复用），
              设 none 关掉校验，设具体值就用它
-  PUBLIC_URL 公网地址（如 https://xxx.tailnet.ts.net）：填了就自动写进 data/firebase.properties，
-             直接发给玩家即可
+  PUBLIC_URL 公网地址（如 https://xxx.tailnet.ts.net）：填了就写进生成的样例配置
+             data/firebase.properties.example，复制成 firebase.properties 即可发给玩家
   TLS_CERT   PEM 证书路径（和 TLS_KEY 一起给才会启用 https）
   TLS_KEY    PEM 私钥路径
+  ADMIN_TOKEN 运维口令：GET /admin/rooms、DELETE /admin/rooms/<码>、GET /admin/stats；
+             不设则自动生成存 data/admintoken.txt，设 none 关闭
+  MAX_ROOMS  房间上限（默认 500）
+  RATE_SIGNUP 每分钟登录次数上限（默认 60，0 = 不限）
   QUIET=1    只打印启动信息，不打印每次读写
 
 接口（给 Dango Music 客户端用，等价于 Firebase 实时数据库的一小部分）:
@@ -68,7 +72,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
   POST /token/v1/token            刷新令牌
   GET|PUT|PATCH|DELETE /db/<路径>.json
   GET /db/<路径>.json + Accept: text/event-stream   实时推送
-  GET /healthz                    健康检查`)
+  GET /healthz                    健康检查（含版本、协议版本、房间数、在线监听数）
+  GET /admin/rooms                运维：列房间；DELETE /admin/rooms/<码> 强制关房
+  GET /admin/stats                运维：统计`)
   process.exit(0)
 }
 
@@ -111,6 +117,48 @@ function loadOrCreateKey() {
 }
 
 const PARTY_KEY = loadOrCreateKey()
+
+/**
+ * 运维口令：只用来读 /admin/*（列房间、强制关房、看统计）。玩家客户端用不到它。
+ *   不设 ADMIN_TOKEN → 自动生成，存 data/admintoken.txt（重启复用），启动日志会打印
+ *   设 ADMIN_TOKEN=none → 关掉 /admin/*（返回 404）
+ */
+const ADMIN_FILE = path.join(DATA_DIR, 'admintoken.txt')
+
+function loadOrCreateAdminToken() {
+  const explicit = (process.env.ADMIN_TOKEN || '').trim()
+  if (explicit === 'none' || explicit === '0' || explicit === 'off') return ''
+  if (explicit) return explicit
+  try {
+    const saved = fs.readFileSync(ADMIN_FILE, 'utf8').trim()
+    if (saved) return saved
+  } catch {}
+  const token = 'adm-' + crypto.randomBytes(12).toString('base64url')
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    fs.writeFileSync(ADMIN_FILE, token + '\n', { mode: 0o600 })
+  } catch (e) {
+    console.error('[!] 写不进去 ' + ADMIN_FILE + '：' + e.message)
+  }
+  return token
+}
+
+const ADMIN_TOKEN = loadOrCreateAdminToken()
+
+/** 全局登录限速：一分钟窗口，防止有人刷号把 party.json 撑爆（参考 mpsync 的安全策略） */
+let signupWindow = { start: 0, count: 0 }
+
+function signupAllowed() {
+  if (!RATE_SIGNUP_PER_MIN) return true
+  const t = now()
+  if (t - signupWindow.start > 60_000) signupWindow = { start: t, count: 0 }
+  return ++signupWindow.count <= RATE_SIGNUP_PER_MIN
+}
+
+function roomCount() {
+  const rooms = tree.root.rooms
+  return rooms && typeof rooms === 'object' ? Object.keys(rooms).length : 0
+}
 
 /** 公开地址（可选）：填了就写进给玩家分发的配置文件，例如 https://xxx.tailnet.ts.net */
 const PUBLIC_URL = (() => {
@@ -194,10 +242,48 @@ const KEEPALIVE_MS = 25_000
 const ABANDONED_MS = 10 * 60_000
 /** 房间彻底没人后多久从内存里清掉 */
 const ROOM_TTL_MS = 60 * 60_000
+/** 单次写入的 JSON 上限（房间状态本来就是几 KB 的元数据） */
+const MAX_VALUE_BYTES = 32 * 1024
+/** 全局房间上限，防止被刷爆存储 */
+const MAX_ROOMS = Number(process.env.MAX_ROOMS ?? 500)
+/** 每分钟允许的匿名登录数（0 = 不限）；按进程计，跨代理也有效 */
+const RATE_SIGNUP_PER_MIN = Number(process.env.RATE_SIGNUP ?? 60)
+/** 房间协议版本（客户端 1.7.0 = 3），只在 /healthz 里露出来方便排查 */
+const PROTOCOL_VERSION = 3
+
+const VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(HERE, 'package.json'), 'utf8')).version || '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+})()
+
+const STATS = { signups: 0, writes: 0, deletes: 0, listens: 0, rejected: 0 }
 
 // ---------------------------------------------------------------- 小工具
 
-const now = () => Date.now()
+/**
+ * 服务器时间。用 performance.now() 当单调基准，避免系统时钟被 NTP/手动调整后
+ * 时间戳回跳（会破坏 lastSeen / at / pos 的推算，参考 MusicParty/mpsync 的时钟纪律）。
+ * 偏差异常（>5s，比如刚从休眠醒来）时重新锚定。
+ */
+const CLOCK = { wall: Date.now(), mono: performance.now(), last: Date.now() }
+
+function serverTime() {
+  const estimated = CLOCK.wall + (performance.now() - CLOCK.mono)
+  const sys = Date.now()
+  if (Math.abs(sys - estimated) > 5000) {
+    CLOCK.wall = sys
+    CLOCK.mono = performance.now()
+    CLOCK.last = sys
+    return sys
+  }
+  CLOCK.last = Math.max(CLOCK.last, Math.round(estimated))
+  return CLOCK.last
+}
+
+const now = () => serverTime()
 const log = (...a) => { if (!QUIET) console.log(new Date().toISOString().slice(11, 19), ...a) }
 
 function seg(p) {
@@ -354,6 +440,107 @@ function resolveTimestamps(v) {
   const out = {}
   for (const k of keys) out[k] = resolveTimestamps(v[k])
   return out
+}
+
+// ---------------------------------------------------------------- 字段校验
+
+/**
+ * 照 database.rules.json 的 .validate 翻译的字段约束。
+ * Firebase 那边越界会被规则拒绝，我们自己实现时容易漏掉——这里补上，防止有人塞垃圾把存储刷爆。
+ * 未知字段放行（客户端将来加字段不该炸），但整块大小有上限。
+ */
+function checkFields(v, spec) {
+  for (const [k, want] of Object.entries(spec)) {
+    const val = v[k]
+    if (val === undefined || val === null) continue
+    if (want === 'number') {
+      if (typeof val !== 'number') return k + ' 必须是数字'
+    } else if (want === 'boolean') {
+      if (typeof val !== 'boolean') return k + ' 必须是布尔值'
+    } else if (typeof val !== 'string') {
+      return k + ' 必须是字符串'
+    } else if (val.length > want) {
+      return `${k} 太长（${val.length} > ${want}）`
+    }
+  }
+  return null
+}
+
+/** 返回错误字符串表示拒绝，null 表示通过 */
+function validateWrite(a, value) {
+  if (value === null || value === undefined) return null
+  // clock/{uid} 之类写的是标量（服务器时间戳），只查对象的大小
+  if (a[0] !== 'rooms' || a.length < 2) {
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      try {
+        if (Buffer.byteLength(JSON.stringify(value)) > MAX_VALUE_BYTES) return '写入内容太大'
+      } catch {}
+    }
+    return null
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return '写入内容必须是 JSON 对象'
+  let bytes = 0
+  try {
+    bytes = Buffer.byteLength(JSON.stringify(value))
+  } catch {
+    return '写入内容无法序列化'
+  }
+  if (bytes > MAX_VALUE_BYTES) return `写入内容太大（${bytes} > ${MAX_VALUE_BYTES} 字节）`
+
+  if (a[1].length > 16) return '房间码太长'
+  const rest = a.slice(2)
+
+  if (rest.length === 0) {
+    return checkFields(value, {
+      host: 128,
+      hostName: 64,
+      protocol: 'number',
+      memberControl: 'boolean',
+      createdAt: 'number',
+    })
+  }
+  if (rest[0] === 'members') {
+    if (rest.length < 2) return '缺少成员 uid'
+    if (rest[1].length > 128) return '成员 uid 太长'
+    return checkFields(value, { name: 64, lastSeen: 'number' })
+  }
+  if (rest[0] === 'state') {
+    return checkFields(value, {
+      trackId: 'number',
+      source: 16,
+      nativeId: 64,
+      mediaId: 64,
+      albumId: 64,
+      name: 1024,
+      artists: 2048,
+      cover: 4096,
+      duration: 'number',
+      pos: 'number',
+      playing: 'boolean',
+      at: 'number',
+    })
+  }
+  if (rest[0] === 'req') {
+    return checkFields(value, {
+      id: 64,
+      by: 128,
+      byName: 64,
+      op: 16,
+      trackId: 'number',
+      source: 16,
+      nativeId: 64,
+      mediaId: 64,
+      albumId: 64,
+      name: 1024,
+      artists: 2048,
+      cover: 4096,
+      duration: 'number',
+      pos: 'number',
+      at: 'number',
+    })
+  }
+  if (rest[0] === 'memberControl') return typeof value === 'boolean' ? null : 'memberControl 必须是布尔值'
+  return null
 }
 
 // ---------------------------------------------------------------- 订阅（SSE）
@@ -533,10 +720,65 @@ const handler = async (req, res) => {
     if (p === '/' || p === '/healthz') {
       sendJson(res, 200, {
         ok: true,
+        server: 'dango-party-server/' + VERSION,
+        protocol: PROTOCOL_VERSION,
         uptimeSec: Math.round(process.uptime()),
-        rooms: Object.keys(tree.root.rooms || {}).length,
+        rooms: roomCount(),
         listeners: SUBSCRIBERS.size,
+        signups: STATS.signups,
       })
+      return
+    }
+
+    // ------------------------------------------------------- 运维接口（玩家用不到）
+    if (p === '/admin/rooms' || p === '/admin/stats' || p.startsWith('/admin/rooms/')) {
+      if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
+      const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+      const token = bearer || q.get('token') || ''
+      if (token !== ADMIN_TOKEN) {
+        code = 403
+        STATS.rejected++
+        return fail(res, 403, 'PERMISSION_DENIED: bad admin token')
+      }
+      if (p === '/admin/stats') {
+        sendJson(res, 200, {
+          ok: true,
+          server: 'dango-party-server/' + VERSION,
+          protocol: PROTOCOL_VERSION,
+          uptimeSec: Math.round(process.uptime()),
+          rooms: roomCount(),
+          listeners: SUBSCRIBERS.size,
+          ...STATS,
+        })
+        return
+      }
+      const m = p.match(/^\/admin\/rooms(?:\/(.+))?$/)
+      const target = m && m[1] ? decodeURIComponent(m[1]) : ''
+      if (!target) {
+        if (req.method !== 'GET') return fail(res, 405, 'method not allowed')
+        const rooms = tree.root.rooms && typeof tree.root.rooms === 'object' ? tree.root.rooms : {}
+        const list = Object.entries(rooms).map(([code_, r]) => ({
+          code: code_,
+          host: r?.host,
+          hostName: r?.hostName,
+          protocol: r?.protocol,
+          memberControl: r?.memberControl,
+          members: Object.entries(r?.members || {}).map(([uid, mm]) => ({ uid, name: mm?.name, lastSeen: mm?.lastSeen })),
+          state: r?.state ? { name: r.state.name, playing: r.state.playing, pos: r.state.pos, at: r.state.at } : null,
+          ageMs: typeof r?.createdAt === 'number' ? now() - r.createdAt : null,
+        }))
+        sendJson(res, 200, { ok: true, rooms: list })
+        return
+      }
+      // 强制关掉某个房间（等同于房主点「Close room」）
+      if (req.method !== 'DELETE') return fail(res, 405, 'method not allowed')
+      if (getNode(['rooms', target]) === undefined) return fail(res, 404, 'room not found')
+      setAt(['rooms', target], undefined)
+      bump(['rooms', target])
+      broadcast('put', ['rooms', target], null)
+      scheduleSave()
+      log('admin closed room', target)
+      sendJson(res, 200, { ok: true, closed: target })
       return
     }
 
@@ -548,10 +790,18 @@ const handler = async (req, res) => {
       if (req.method !== 'POST') return fail(res, 405, 'method not allowed')
       if (PARTY_KEY && q.get('key') !== PARTY_KEY) {
         code = 403
+        STATS.rejected++
         log('signUp rejected: bad key')
         return fail(res, 403, 'PERMISSION_DENIED: invalid api key')
       }
+      if (!signupAllowed()) {
+        code = 429
+        STATS.rejected++
+        log('signUp rejected: rate limit')
+        return fail(res, 429, 'too many sign-ups, retry later')
+      }
       await readBody(req) // 请求体是 {"returnSecureToken":true}，这里不需要
+      STATS.signups++
       const uid = crypto.randomUUID()
       sendJson(res, 200, {
         kind: 'identitytoolkit#SignupNewUserResponse',
@@ -629,6 +879,7 @@ const handler = async (req, res) => {
         bump(a)
         broadcast('put', a, null)
         scheduleSave()
+        STATS.deletes++
         code = 200
         log('del', logPath(a), 'by', uid.slice(0, 8))
         return sendJson(res, 200, null, { ETag: etagOf(a) })
@@ -641,10 +892,24 @@ const handler = async (req, res) => {
           return fail(res, 412, 'PRECONDITION_FAILED: etag mismatch at ' + logPath(a))
         }
         const value = resolveTimestamps(parseJson(text, 'PUT body'))
+        // 新建房间时检查总量上限（房主已经存在则不重复计数）
+        if (a.length === 2 && a[0] === 'rooms' && getNode(a) === undefined && roomCount() >= MAX_ROOMS) {
+          code = 429
+          STATS.rejected++
+          return fail(res, 429, `too many rooms (limit ${MAX_ROOMS}), 请联系服主清理`)
+        }
+        const invalid = validateWrite(a, value)
+        if (invalid) {
+          code = 400
+          STATS.rejected++
+          log('rejected write', logPath(a) + ': ' + invalid)
+          return fail(res, 400, 'INVALID_ARGUMENT: ' + invalid)
+        }
         setAt(a, value)
         bump(a)
         broadcast('put', a, value)
         scheduleSave()
+        STATS.writes++
         code = 200
         log('put', logPath(a), 'by', uid.slice(0, 8))
         return sendJson(res, 200, value, { ETag: etagOf(a) })
@@ -653,10 +918,18 @@ const handler = async (req, res) => {
       if (method === 'PATCH') {
         const patch = resolveTimestamps(parseJson(text || '{}', 'PATCH body'))
         if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return fail(res, 400, 'PATCH body must be an object')
+        const invalid = validateWrite(a, patch)
+        if (invalid) {
+          code = 400
+          STATS.rejected++
+          log('rejected patch', logPath(a) + ': ' + invalid)
+          return fail(res, 400, 'INVALID_ARGUMENT: ' + invalid)
+        }
         mergeAt(a, patch)
         bump(a)
         broadcast('patch', a, patch)
         scheduleSave()
+        STATS.writes++
         code = 200
         log('patch', logPath(a), 'by', uid.slice(0, 8))
         return sendJson(res, 200, getNode(a) ?? null, { ETag: etagOf(a) })
@@ -711,6 +984,7 @@ function openStream(req, res, a, uid) {
 
   const sub = { path: a, res, timer: null }
   SUBSCRIBERS.add(sub)
+  STATS.listens++
 
   const node = getNode(a)
   writeEvent(res, 'put', { path: '/', data: node === undefined ? null : node })
@@ -781,6 +1055,13 @@ server.listen(PORT, HOST, () => {
   } else {
     log('  apiKey 校验已关闭（PARTY_KEY=none）：谁都能匿名登录，只适合本机测试')
   }
+  if (ADMIN_TOKEN) {
+    log('  运维口令: ' + ADMIN_TOKEN + '   （GET /admin/rooms、DELETE /admin/rooms/<码>、GET /admin/stats）')
+    log('          用 Authorization: Bearer <口令> 或 ?token=<口令>；存在 ' + ADMIN_FILE)
+  } else {
+    log('  运维接口已关闭（ADMIN_TOKEN=none）')
+  }
+  log(`  限速：登录 ${RATE_SIGNUP_PER_MIN || '不限'}/分钟；房间上限 ${MAX_ROOMS}`)
   const cfgUrl = PUBLIC_URL || (TLS ? `${scheme}://127.0.0.1:${actual}` : '')
   const sample = writeSampleConfig(cfgUrl)
   if (sample.file) {

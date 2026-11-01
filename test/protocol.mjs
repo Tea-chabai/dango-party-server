@@ -446,9 +446,88 @@ async function testAutoKey() {
   }
 }
 
+/** 第 14 组：运维接口、字段校验、限速、零依赖守卫（借鉴 MusicParty/mpsync 的运维与安全思路） */
+async function testOpsAndGuards() {
+  console.log('\n14) 运维接口 / 字段校验 / 限速 / 零依赖守卫')
+
+  const src = fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8')
+  const imports = [...src.matchAll(/^\s*import\s+[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1])
+  ok('server.mjs 只用 node: 内置模块', imports.length > 0 && imports.every((i) => i.startsWith('node:')), imports)
+  ok('没有 require() / 第三方依赖', !/\brequire\s*\(/.test(src))
+
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-ops-'))
+  const srv = await startServer({
+    DATA_DIR: dataDir,
+    ADMIN_TOKEN: 'test-admin',
+    RATE_SIGNUP: '3',
+    MAX_ROOMS: '1',
+  })
+  const prevBase = BASE
+  BASE = srv.base
+  try {
+    const authRes = await auth.signUp()
+    const host = { idToken: authRes.json.idToken, uid: authRes.json.localId }
+    const H = db(host)
+
+    const health = await (await fetch(BASE + '/healthz')).json()
+    ok(
+      'healthz 带版本与协议版本',
+      String(health.server).startsWith('dango-party-server/') && health.protocol === 3,
+      health,
+    )
+
+    const room = {
+      protocol: 3,
+      host: host.uid,
+      hostName: '房主',
+      memberControl: true,
+      createdAt: sv,
+      members: { [host.uid]: { name: '房主', lastSeen: sv } },
+    }
+    const created = await H.putIfUnchanged('rooms/D-OPS01', room, '"null_etag"')
+    ok('建房成功', created.status === 200, created)
+
+    const badType = await H.put('rooms/D-OPS01/state', { pos: 'abc' })
+    ok('字段类型不对被拒（400）', badType.status === 400, badType)
+    const badLong = await H.put('rooms/D-OPS01/state', { name: 'x'.repeat(1100) })
+    ok('字段超长被拒（400）', badLong.status === 400, badLong)
+
+    const second = await H.putIfUnchanged('rooms/D-OPS02', { ...room }, '"null_etag"')
+    ok('超过 MAX_ROOMS 被拒（429）', second.status === 429, second)
+
+    const noTok = await call('GET', '/admin/rooms')
+    ok('没有运维口令 403', noTok.status === 403, noTok)
+    const listed = await call('GET', '/admin/rooms?token=test-admin')
+    ok('运维能列房间', listed.status === 200 && listed.json.rooms?.some((r) => r.code === 'D-OPS01'), listed)
+    const stats = await call('GET', '/admin/stats?token=test-admin')
+    ok('运维统计正常', stats.status === 200 && typeof stats.json.signups === 'number', stats)
+
+    const sse = listen(host, 'rooms/D-OPS01')
+    await sse.waitFor((e) => e.event === 'put' && e.data?.path === '/')
+    const closed = await call('DELETE', '/admin/rooms/D-OPS01?token=test-admin')
+    ok('运维强制关房 200', closed.status === 200, closed)
+    const gone = await sse.waitFor((e) => e.event === 'put' && e.data?.path === '/' && e.data.data === null)
+    ok('客户端收到关房推送', !!gone)
+    sse.close()
+
+    const codes = []
+    for (let i = 0; i < 3; i++) codes.push((await auth.signUp()).status)
+    ok('登录限速生效（429）', codes.includes(429), codes)
+  } finally {
+    BASE = prevBase
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
 main()
   .then(testPartyKey)
   .then(testAutoKey)
+  .then(testOpsAndGuards)
   .then(() => {
     console.log(`\n全部通过：${passed} 项`)
     cleanup()
