@@ -291,7 +291,7 @@ DangoMusic 的同步层是抽象的（`PartyTransport`），默认实现是个�
 客户端调用时序）都在 **[docs/PROTOCOL.md](docs/PROTOCOL.md)**。
 
 权限照作者线上的 `database.rules.json` 翻译：房主才能改房间 / 写 `state`，成员只能写自己的
-`members/{uid}`，只有房主开了「允许成员控制」成员才能写 `req`；房间不能列目录；房主 5 分钟没心跳
+`members/{uid}`，只有房主开了「允许成员控制」成员才能写 `req`；房间不能列目录；房主 10 分钟没心跳
 可以被接管。
 
 ## 兼容性
@@ -329,8 +329,8 @@ curl -X DELETE "http://127.0.0.1:8787/admin/rooms/D-ABCDE?token=<口令>"
   逐条对照见 **[docs/RULES.md](docs/RULES.md)**；
 - **登录限速**：默认 60 次/分钟（`RATE_SIGNUP` 调整，`0` 关闭）；
 - **房间上限**：默认 500（`MAX_ROOMS` 调整）；
-- **房主接管窗口**：默认 5 分钟没心跳算废弃、可被接管（`TAKEOVER_MIN` 调整；
-  注意客户端自己写死 11 分钟，放宽只影响服务端写权限判定）；
+- **房主接管窗口**：默认 10 分钟没心跳算废弃、可被接管（`TAKEOVER_MIN` 可调；和作者 Firebase 规则一致，
+  客户端自己写死 11 分钟、比服务端多留 1 分钟余量，避免时钟差卡在边界上）；
 - **单调时钟**：服务器时间基于 `performance.now()`，系统时间被 NTP/手动调整时不会回跳
   （回跳会让 `lastSeen`、`at` 的推算错乱）。
 

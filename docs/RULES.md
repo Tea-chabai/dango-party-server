@@ -11,7 +11,7 @@ DangoMusic 仓库里的 `database.rules.json` 是作者给 Firebase 写的安全
 | Firebase 规则 | 本项目实现 | 状态 |
 | --- | --- | --- |
 | `.read: auth != null` | `allowedRead()`：登录用户可读 `rooms/{code}` 及以下 | ✅ |
-| `.write: 不存在 \|\| host 是我 \|\| host 心跳 < now-600000` | `allowedWrite()` + `hostAbandoned()`（默认 5 分钟，`TAKEOVER_MIN` 可调） | ⚠️ 见下 |
+| `.write: 不存在 \|\| host 是我 \|\| host 心跳 < now-600000` | `allowedWrite()` + `hostAbandoned()`（默认 10 分钟，`TAKEOVER_MIN` 可调） | ✅ |
 | `.validate: $code.length <= 16` | `validateWrite()`：房间码 > 16 字符 → 400 | ✅ |
 | `.validate: newData.hasChildren(['host'])` | 建房/更新必须带 `host` → 400 | ✅ |
 | `.validate: host === auth.uid \|\| host === data.host` | 新建时 `host` 必须是自己；更新时只能保持原房主 → 400 | ✅ |
@@ -69,11 +69,11 @@ DangoMusic 仓库里的 `database.rules.json` 是作者给 Firebase 写的安全
 如果你更想要 Firebase 那种严格模式，可以在 `validateWrite()` 里针对 `state` / `req` / `members`
 补一个「未知键就拒绝」，并把 `docs/PROTOCOL.md` 的字段表同步更新。
 
-**接管窗口 5 分钟（Firebase 规则是 10 分钟）**：作者规则里写的是 `now - 600000`（10 分钟）。
-本项目默认按 **5 分钟**算废弃（`TAKEOVER_MIN` 可调，改回 10 就是 `TAKEOVER_MIN=10`）。原因：
-- 客户端自己写死 11 分钟（`ListenParty.ABANDONED_MS`），`create()` 换码时遇到未废弃的房间会直接跳过、
-  `join()` 也会拒绝——所以**正常玩家不会因为服务端放宽而更早接管**，放宽只影响写权限判定（自定义客户端/脚本）；
-- 私服场景里房主基本是掉线/关游戏，5 分钟已经足够区分「短暂抖动」和「人没了」。
+**接管窗口 10 分钟（和规则一致）**：作者规则写的是 `now - 600000`，本项目默认也是 10 分钟
+（`TAKEOVER_MIN` 可调）。为什么客户端是 11 分钟而服务端是 10 分钟：客户端的 11 分钟写死在
+`ListenParty.ABANDONED_MS` 里，作者故意比服务端多留 1 分钟，避免两边时钟差一点点就卡在边界上被规则拒绝。
+本项目保持这个关系，不擅自定义更短的窗口——服务端比客户端早，只是放行权限；客户端比服务端早，
+才会出现「客户端以为可以接管、服务端拒绝」的报错。
 
 **接管后的写入范围**：Firebase 的 `.write` 是继承的，所以「房主心跳超时」后别人连 `state`
 都能写；本项目只允许接管者整体重建房间节点，`state`/`memberControl` 仍限房主。实际等价

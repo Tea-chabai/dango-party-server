@@ -65,7 +65,8 @@ if (argv.includes('--help') || argv.includes('-h')) {
              不设则自动生成存 data/admintoken.txt，设 none 关闭
   MAX_ROOMS  房间上限（默认 500）
   RATE_SIGNUP 每分钟登录次数上限（默认 60，0 = 不限）
-  TAKEOVER_MIN 房主多少分钟没心跳算废弃、可被接管（默认 5；客户端自己写死 11 分钟）
+  TAKEOVER_MIN 房主多少分钟没心跳算废弃、可被接管（默认 10，和作者 Firebase 规则一致；
+             客户端自己写死 11 分钟，比服务端多留 1 分钟余量）
   QUIET=1    只打印启动信息，不打印每次读写
 
 接口（给 Dango Music 客户端用，等价于 Firebase 实时数据库的一小部分）:
@@ -242,10 +243,12 @@ const KEEPALIVE_MS = 25_000
 /** 房主超过这么久没心跳，房间算废弃，可以被别人接管（和作者线上的规则一致） */
 /**
  * 房主多久没心跳算「废弃」，可以被别人接管同一个房间码。
- * 注意：客户端自己写死了 11 分钟（ListenParty.ABANDONED_MS），而且只在 create() 换码/join() 时才用；
- * 所以这里改小只影响服务端的写权限判定（自定义客户端、脚本），不会让正常客户端更早接管。
+ * 跟作者 Firebase 规则（database.rules.json 里的 600000 毫秒）保持一致：10 分钟。
+ * 客户端自己写死 11 分钟（ListenParty.ABANDONED_MS）——比服务端多 1 分钟，是作者故意的：
+ * 客户端 11 分钟时才去试，服务端 10 分钟就已经放行，避免两边时钟差一点卡在边界上被拒。
+ * TAKEOVER_MIN 可调，但改小只会放宽服务端的写权限（客户端仍按 11 分钟判断）。
  */
-const TAKEOVER_MIN = Math.max(1, Number(process.env.TAKEOVER_MIN ?? 5))
+const TAKEOVER_MIN = Math.max(1, Number(process.env.TAKEOVER_MIN ?? 10))
 const ABANDONED_MS = TAKEOVER_MIN * 60_000
 /** 房间彻底没人后多久从内存里清掉 */
 const ROOM_TTL_MS = 60 * 60_000

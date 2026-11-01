@@ -133,7 +133,7 @@ Accept: text/event-stream
 | 路径 | 读 | 写 |
 | --- | --- | --- |
 | `rooms`（列表） | ❌ | ❌ |
-| `rooms/{code}` | ✅ | 房间不存在时任何人都能建；存在时只有房主能改；房主 5 分钟没心跳时别人可以接管（`TAKEOVER_MIN` 可调） |
+| `rooms/{code}` | ✅ | 房间不存在时任何人都能建；存在时只有房主能改；房主 10 分钟没心跳时别人可以接管（`TAKEOVER_MIN` 可调） |
 | `rooms/{code}/members/{uid}` | ✅ | 只有 `uid` 自己能写 |
 | `rooms/{code}/state` | ✅ | 只有房主 |
 | `rooms/{code}/memberControl` | ✅ | 只有房主 |
@@ -181,8 +181,9 @@ rooms/D-ABCDE
 | 关房 / 离开 | 房主 `DELETE rooms/{code}`，成员 `DELETE rooms/{code}/members/{uid}` |
 
 成员列表：客户端只显示 90 秒内有心跳的成员；房主 11 分钟没心跳的房间算废弃，可以被新房间接管
-（客户端这个 11 分钟是写死在 `ListenParty.ABANDONED_MS` 里的；服务端默认按 5 分钟算废弃，
-`TAKEOVER_MIN` 可调，只影响服务端的写权限判定，不会让客户端更早接管同一个房间码）。
+（客户端这个 11 分钟是写死在 `ListenParty.ABANDONED_MS` 里的；服务端默认按 10 分钟算废弃，比客户端早 1 分钟，
+避免两边时钟差一点被卡在边界上。`TAKEOVER_MIN` 可调，但改小只放宽服务端的写权限，
+客户端仍然按 11 分钟判断）。
 
 ## 8. 服务端侧的额外约束（不是协议要求，但本实现会执行）
 

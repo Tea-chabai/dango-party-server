@@ -648,6 +648,41 @@ async function testTakeover() {
       fs.rmSync(dataDir, { recursive: true, force: true })
     } catch {}
   }
+
+  // 默认窗口（10 分钟，跟作者规则一致）下，房主静默 3 分钟不该被接管
+  const dataDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-takeover2-'))
+  const srv2 = await startServer({ PARTY_KEY: KEY, DATA_DIR: dataDir2 })
+  BASE = srv2.base
+  try {
+    const a = await auth.signUp()
+    const b = await auth.signUp()
+    const A = { idToken: a.json.idToken, uid: a.json.localId }
+    const B = { idToken: b.json.idToken, uid: b.json.localId }
+    const HA = db(A)
+    const HB = db(B)
+    const code = 'D-TAKE2'
+    await HA.putIfUnchanged(
+      `rooms/${code}`,
+      { host: A.uid, hostName: 'A', protocol: 3, createdAt: sv, members: { [A.uid]: { name: 'A', lastSeen: sv } } },
+      '"null_etag"',
+    )
+    await HA.patch(`rooms/${code}/members/${A.uid}`, { lastSeen: Date.now() - 3 * 60_000 })
+    const tag = (await HA.getWithEtag(`rooms/${code}`)).etag
+    const denied = await HB.putIfUnchanged(
+      `rooms/${code}`,
+      { host: B.uid, hostName: 'B', protocol: 3, createdAt: Date.now(), members: { [B.uid]: { name: 'B', lastSeen: Date.now() } } },
+      tag,
+    )
+    ok('默认 10 分钟窗口下，静默 3 分钟仍不能被接管（403）', denied.status === 403, denied)
+  } finally {
+    BASE = prevBase
+    try {
+      srv2.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir2, { recursive: true, force: true })
+    } catch {}
+  }
 }
 
 main()
