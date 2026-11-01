@@ -467,9 +467,15 @@ function checkFields(v, spec) {
 }
 
 /** 返回错误字符串表示拒绝，null 表示通过 */
-function validateWrite(a, value) {
+function validateWrite(a, value, uid, isPatch = false) {
   if (value === null || value === undefined) return null
-  // clock/{uid} 之类写的是标量（服务器时间戳），只查对象的大小
+
+  // clock/{uid}：规则要求 newData.isNumber()，只允许写自己的时钟
+  if (a[0] === 'clock') {
+    if (a.length !== 2) return 'clock 只允许 clock/{uid}'
+    if (typeof value !== 'number') return 'clock 的值必须是数字'
+    return null
+  }
   if (a[0] !== 'rooms' || a.length < 2) {
     if (typeof value === 'object' && !Array.isArray(value)) {
       try {
@@ -491,18 +497,35 @@ function validateWrite(a, value) {
   const rest = a.slice(2)
 
   if (rest.length === 0) {
-    return checkFields(value, {
+    const err = checkFields(value, {
       host: 128,
       hostName: 64,
       protocol: 'number',
       memberControl: 'boolean',
       createdAt: 'number',
     })
+    if (err) return err
+    // 规则：newData.hasChildren(['host']) 且 host 只能是自己，或保持原来的房主
+    const current = getNode(a)
+    const currentHost = current && typeof current === 'object' ? current.host : undefined
+    const newHost = isPatch && value.host === undefined ? currentHost : value.host
+    if (newHost === undefined || newHost === null) return '缺少 host'
+    if (currentHost === undefined) {
+      if (newHost !== uid) return 'host 必须是自己（不能替别人建房）'
+    } else if (newHost !== currentHost && newHost !== uid) {
+      return '不能把房主改成别人'
+    }
+    return null
   }
   if (rest[0] === 'members') {
     if (rest.length < 2) return '缺少成员 uid'
     if (rest[1].length > 128) return '成员 uid 太长'
-    return checkFields(value, { name: 64, lastSeen: 'number' })
+    const err = checkFields(value, { name: 64, lastSeen: 'number' })
+    if (err) return err
+    // 规则：newData.hasChildren(['lastSeen'])（PATCH 时看合并后的结果）
+    const merged = isPatch ? { ...(getNode(a) || {}), ...value } : value
+    if (merged.lastSeen === undefined || merged.lastSeen === null) return '缺少 lastSeen'
+    return null
   }
   if (rest[0] === 'state') {
     return checkFields(value, {
@@ -521,7 +544,7 @@ function validateWrite(a, value) {
     })
   }
   if (rest[0] === 'req') {
-    return checkFields(value, {
+    const err = checkFields(value, {
       id: 64,
       by: 128,
       byName: 64,
@@ -538,6 +561,10 @@ function validateWrite(a, value) {
       pos: 'number',
       at: 'number',
     })
+    if (err) return err
+    // 规则：newData.child('by').val() === auth.uid
+    if (value.by !== undefined && value.by !== null && value.by !== uid) return 'req.by 必须是自己的 uid'
+    return null
   }
   if (rest[0] === 'memberControl') return typeof value === 'boolean' ? null : 'memberControl 必须是布尔值'
   return null
@@ -898,7 +925,7 @@ const handler = async (req, res) => {
           STATS.rejected++
           return fail(res, 429, `too many rooms (limit ${MAX_ROOMS}), 请联系服主清理`)
         }
-        const invalid = validateWrite(a, value)
+        const invalid = validateWrite(a, value, uid, false)
         if (invalid) {
           code = 400
           STATS.rejected++
@@ -918,7 +945,7 @@ const handler = async (req, res) => {
       if (method === 'PATCH') {
         const patch = resolveTimestamps(parseJson(text || '{}', 'PATCH body'))
         if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return fail(res, 400, 'PATCH body must be an object')
-        const invalid = validateWrite(a, patch)
+        const invalid = validateWrite(a, patch, uid, true)
         if (invalid) {
           code = 400
           STATS.rejected++

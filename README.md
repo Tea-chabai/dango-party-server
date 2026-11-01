@@ -324,7 +324,9 @@ curl -X DELETE "http://127.0.0.1:8787/admin/rooms/D-ABCDE?token=<口令>"
 ## 安全与配额
 
 - **apiKey 共享口令**（`PARTY_KEY`）：挡掉被证书透明日志扫到域名的爬虫，不让它们白拿身份；
-- **字段校验**：照 `database.rules.json` 的 `.validate` 检查类型/长度，单次写入 ≤ 32 KB —— 防止有人塞垃圾把存储刷爆；
+- **字段校验**：照 `database.rules.json` 的 `.validate` 检查类型/长度（含「建房 host 必须是自己」
+  「成员节点必须有 lastSeen」「`req.by` 必须是自己」「`clock` 必须是数字」），单次写入 ≤ 32 KB；
+  逐条对照见 **[docs/RULES.md](docs/RULES.md)**；
 - **登录限速**：默认 60 次/分钟（`RATE_SIGNUP` 调整，`0` 关闭）；
 - **房间上限**：默认 500（`MAX_ROOMS` 调整）；
 - **单调时钟**：服务器时间基于 `performance.now()`，系统时间被 NTP/手动调整时不会回跳

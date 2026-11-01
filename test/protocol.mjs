@@ -524,10 +524,81 @@ async function testOpsAndGuards() {
   }
 }
 
+/** 第 15 组：和 database.rules.json 的 .validate 逐条对齐（host 归属、lastSeen、req.by、clock 数字） */
+async function testRulesParity() {
+  console.log('\n15) 与 database.rules.json 的校验对齐')
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-rules-'))
+  const srv = await startServer({ PARTY_KEY: KEY, DATA_DIR: dataDir })
+  const prevBase = BASE
+  BASE = srv.base
+  try {
+    const a = await auth.signUp()
+    const b = await auth.signUp()
+    const host = { idToken: a.json.idToken, uid: a.json.localId }
+    const member = { idToken: b.json.idToken, uid: b.json.localId }
+    const H = db(host)
+    const M = db(member)
+    const code = 'D-RULE1'
+
+    // host 不能替别人建房
+    const wrongHost = await H.putIfUnchanged(
+      `rooms/${code}`,
+      { host: member.uid, hostName: 'x', protocol: 3, createdAt: sv, members: {} },
+      '"null_etag"',
+    )
+    ok('建房时 host 不是自己被拒（400）', wrongHost.status === 400, wrongHost)
+
+    const created = await H.putIfUnchanged(
+      `rooms/${code}`,
+      {
+        host: host.uid,
+        hostName: '房主',
+        protocol: 3,
+        memberControl: true,
+        createdAt: sv,
+        members: { [host.uid]: { name: '房主', lastSeen: sv } },
+      },
+      '"null_etag"',
+    )
+    ok('正常建房通过', created.status === 200, created)
+
+    // 不能把房主改成别人
+    const transfer = await H.patch(`rooms/${code}`, { host: member.uid })
+    ok('把 host 改成别人被拒（400）', transfer.status === 400, transfer)
+
+    // 成员节点必须带 lastSeen
+    const noSeen = await M.put(`rooms/${code}/members/${member.uid}`, { name: '成员' })
+    ok('成员节点缺 lastSeen 被拒（400）', noSeen.status === 400, noSeen)
+    const joined = await M.put(`rooms/${code}/members/${member.uid}`, { name: '成员', lastSeen: sv })
+    ok('带 lastSeen 能加入', joined.status === 200, joined)
+
+    // req.by 必须是自己的 uid
+    const badBy = await M.put(`rooms/${code}/req`, { id: 'r1', by: host.uid, byName: '成员', op: 'next', pos: 0, at: sv })
+    ok('req.by 不是自己被拒（400）', badBy.status === 400, badBy)
+    const goodReq = await M.put(`rooms/${code}/req`, { id: 'r2', by: member.uid, byName: '成员', op: 'next', pos: 0, at: sv })
+    ok('req.by 是自己能通过', goodReq.status === 200, goodReq)
+
+    // clock 必须是数字
+    const badClock = await H.put(`clock/${host.uid}`, { foo: 1 })
+    ok('clock 写对象被拒（400）', badClock.status === 400, badClock)
+    const goodClock = await H.put(`clock/${host.uid}`, sv)
+    ok('clock 写时间戳（会被换成数字）通过', goodClock.status === 200 && typeof goodClock.json === 'number', goodClock)
+  } finally {
+    BASE = prevBase
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
 main()
   .then(testPartyKey)
   .then(testAutoKey)
   .then(testOpsAndGuards)
+  .then(testRulesParity)
   .then(() => {
     console.log(`\n全部通过：${passed} 项`)
     cleanup()
