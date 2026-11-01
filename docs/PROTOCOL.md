@@ -133,7 +133,7 @@ Accept: text/event-stream
 | 路径 | 读 | 写 |
 | --- | --- | --- |
 | `rooms`（列表） | ❌ | ❌ |
-| `rooms/{code}` | ✅ | 房间不存在时任何人都能建；存在时只有房主能改；房主 10 分钟没心跳时别人可以接管 |
+| `rooms/{code}` | ✅ | 房间不存在时任何人都能建；存在时只有房主能改；房主 10 分钟没心跳时别人可以接管（`TAKEOVER_MIN` 可调） |
 | `rooms/{code}/members/{uid}` | ✅ | 只有 `uid` 自己能写 |
 | `rooms/{code}/state` | ✅ | 只有房主 |
 | `rooms/{code}/memberControl` | ✅ | 只有房主 |
@@ -181,9 +181,48 @@ rooms/D-ABCDE
 | 关房 / 离开 | 房主 `DELETE rooms/{code}`，成员 `DELETE rooms/{code}/members/{uid}` |
 
 成员列表：客户端只显示 90 秒内有心跳的成员；房主 11 分钟没心跳的房间算废弃，可以被新房间接管
-（服务器侧清理阈值是 10 分钟，比客户端宽 1 分钟，避免时钟差导致被规则拒绝）。
+（客户端这个 11 分钟是写死在 `ListenParty.ABANDONED_MS` 里的；服务端默认按 10 分钟算废弃，比客户端早 1 分钟，
+避免两边时钟差一点被卡在边界上。`TAKEOVER_MIN` 可调，但改小只放宽服务端的写权限，
+客户端仍然按 11 分钟判断）。
 
-## 8. 兼容性
+## 8. 服务端侧的额外约束（不是协议要求，但本实现会执行）
+
+客户端的 Firebase 规则里还有一层 `.validate`（字段类型/长度），本项目照它实现了校验，越界写会返回
+`400 INVALID_ARGUMENT`：
+
+| 字段 | 限制 |
+| --- | --- |
+| 房间码 | ≤ 16 字符 |
+| `host` / `members.{uid}` | ≤ 128 字符 |
+| `hostName` / `name` / `byName` | ≤ 64 字符 |
+| `source` / `op` | ≤ 16 字符 |
+| `nativeId` / `mediaId` / `albumId` / `req.id` | ≤ 64 字符 |
+| `state.name` / `req.name` | ≤ 1024 字符 |
+| `state.artists` / `req.artists` | ≤ 2048 字符 |
+| `cover` | ≤ 4096 字符 |
+| `trackId` / `duration` / `pos` / `at` / `lastSeen` / `createdAt` / `protocol` | 数字 |
+| `playing` / `memberControl` | 布尔 |
+| 单次写入整体 | ≤ 32 KB |
+
+未知字段**放行**（将来客户端加字段不该炸房），这一点和 Firebase 规则的「禁止未知字段」不同，是有意为之。
+
+除了字段长度/类型，规则里还有几条「结构约束」，本实现同样执行（越界返回 `400`）：
+
+- 建房时 `host` 必须是自己；更新时只能保持原房主（不能把房主改成别人）；
+- `members/{uid}` 写入后必须带 `lastSeen`（`PATCH` 按合并后的结果判断）；
+- `req.by` 必须等于自己的 uid；
+- `clock/{uid}` 必须是数字（`{".sv":"timestamp"}` 落地后）。
+
+逐条对照（包括有意不同的地方和理由）见 **[docs/RULES.md](RULES.md)**。
+
+另外两项不属于协议、只影响运维：
+
+- **服务器时间用单调时钟**：`{".sv":"timestamp"}` 回填的时间基于 `performance.now()`，系统时间被
+  NTP/手动调整时不会回跳。
+- **`/admin/*` 运维接口**（列房间、强制关房、统计），用独立口令，和玩家客户端无关；
+  详见 README 的「运维接口」。
+
+## 9. 兼容性
 
 - 房间的 `protocol` 决定能用的功能：`3` = 成员控制 + QQ/酷狗音源；`2` = QQ；`1` = 只有网易云。
 - 老客户端不认识 `memberControl` / `req`：它们能加入、能跟着放，但只能房主控制，且新房对它们来说

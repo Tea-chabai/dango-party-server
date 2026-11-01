@@ -446,9 +446,251 @@ async function testAutoKey() {
   }
 }
 
+/** 第 14 组：运维接口、字段校验、限速、零依赖守卫（借鉴 MusicParty/mpsync 的运维与安全思路） */
+async function testOpsAndGuards() {
+  console.log('\n14) 运维接口 / 字段校验 / 限速 / 零依赖守卫')
+
+  const src = fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8')
+  const imports = [...src.matchAll(/^\s*import\s+[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1])
+  ok('server.mjs 只用 node: 内置模块', imports.length > 0 && imports.every((i) => i.startsWith('node:')), imports)
+  ok('没有 require() / 第三方依赖', !/\brequire\s*\(/.test(src))
+
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-ops-'))
+  const srv = await startServer({
+    DATA_DIR: dataDir,
+    ADMIN_TOKEN: 'test-admin',
+    RATE_SIGNUP: '3',
+    MAX_ROOMS: '1',
+  })
+  const prevBase = BASE
+  BASE = srv.base
+  try {
+    const authRes = await auth.signUp()
+    const host = { idToken: authRes.json.idToken, uid: authRes.json.localId }
+    const H = db(host)
+
+    const health = await (await fetch(BASE + '/healthz')).json()
+    ok(
+      'healthz 带版本与协议版本',
+      String(health.server).startsWith('dango-party-server/') && health.protocol === 3,
+      health,
+    )
+
+    const room = {
+      protocol: 3,
+      host: host.uid,
+      hostName: '房主',
+      memberControl: true,
+      createdAt: sv,
+      members: { [host.uid]: { name: '房主', lastSeen: sv } },
+    }
+    const created = await H.putIfUnchanged('rooms/D-OPS01', room, '"null_etag"')
+    ok('建房成功', created.status === 200, created)
+
+    const badType = await H.put('rooms/D-OPS01/state', { pos: 'abc' })
+    ok('字段类型不对被拒（400）', badType.status === 400, badType)
+    const badLong = await H.put('rooms/D-OPS01/state', { name: 'x'.repeat(1100) })
+    ok('字段超长被拒（400）', badLong.status === 400, badLong)
+
+    const second = await H.putIfUnchanged('rooms/D-OPS02', { ...room }, '"null_etag"')
+    ok('超过 MAX_ROOMS 被拒（429）', second.status === 429, second)
+
+    const noTok = await call('GET', '/admin/rooms')
+    ok('没有运维口令 403', noTok.status === 403, noTok)
+    const listed = await call('GET', '/admin/rooms?token=test-admin')
+    ok('运维能列房间', listed.status === 200 && listed.json.rooms?.some((r) => r.code === 'D-OPS01'), listed)
+    const stats = await call('GET', '/admin/stats?token=test-admin')
+    ok('运维统计正常', stats.status === 200 && typeof stats.json.signups === 'number', stats)
+
+    const sse = listen(host, 'rooms/D-OPS01')
+    await sse.waitFor((e) => e.event === 'put' && e.data?.path === '/')
+    const closed = await call('DELETE', '/admin/rooms/D-OPS01?token=test-admin')
+    ok('运维强制关房 200', closed.status === 200, closed)
+    const gone = await sse.waitFor((e) => e.event === 'put' && e.data?.path === '/' && e.data.data === null)
+    ok('客户端收到关房推送', !!gone)
+    sse.close()
+
+    const codes = []
+    for (let i = 0; i < 3; i++) codes.push((await auth.signUp()).status)
+    ok('登录限速生效（429）', codes.includes(429), codes)
+  } finally {
+    BASE = prevBase
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
+/** 第 15 组：和 database.rules.json 的 .validate 逐条对齐（host 归属、lastSeen、req.by、clock 数字） */
+async function testRulesParity() {
+  console.log('\n15) 与 database.rules.json 的校验对齐')
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-rules-'))
+  const srv = await startServer({ PARTY_KEY: KEY, DATA_DIR: dataDir })
+  const prevBase = BASE
+  BASE = srv.base
+  try {
+    const a = await auth.signUp()
+    const b = await auth.signUp()
+    const host = { idToken: a.json.idToken, uid: a.json.localId }
+    const member = { idToken: b.json.idToken, uid: b.json.localId }
+    const H = db(host)
+    const M = db(member)
+    const code = 'D-RULE1'
+
+    // host 不能替别人建房
+    const wrongHost = await H.putIfUnchanged(
+      `rooms/${code}`,
+      { host: member.uid, hostName: 'x', protocol: 3, createdAt: sv, members: {} },
+      '"null_etag"',
+    )
+    ok('建房时 host 不是自己被拒（400）', wrongHost.status === 400, wrongHost)
+
+    const created = await H.putIfUnchanged(
+      `rooms/${code}`,
+      {
+        host: host.uid,
+        hostName: '房主',
+        protocol: 3,
+        memberControl: true,
+        createdAt: sv,
+        members: { [host.uid]: { name: '房主', lastSeen: sv } },
+      },
+      '"null_etag"',
+    )
+    ok('正常建房通过', created.status === 200, created)
+
+    // 不能把房主改成别人
+    const transfer = await H.patch(`rooms/${code}`, { host: member.uid })
+    ok('把 host 改成别人被拒（400）', transfer.status === 400, transfer)
+
+    // 成员节点必须带 lastSeen
+    const noSeen = await M.put(`rooms/${code}/members/${member.uid}`, { name: '成员' })
+    ok('成员节点缺 lastSeen 被拒（400）', noSeen.status === 400, noSeen)
+    const joined = await M.put(`rooms/${code}/members/${member.uid}`, { name: '成员', lastSeen: sv })
+    ok('带 lastSeen 能加入', joined.status === 200, joined)
+
+    // req.by 必须是自己的 uid
+    const badBy = await M.put(`rooms/${code}/req`, { id: 'r1', by: host.uid, byName: '成员', op: 'next', pos: 0, at: sv })
+    ok('req.by 不是自己被拒（400）', badBy.status === 400, badBy)
+    const goodReq = await M.put(`rooms/${code}/req`, { id: 'r2', by: member.uid, byName: '成员', op: 'next', pos: 0, at: sv })
+    ok('req.by 是自己能通过', goodReq.status === 200, goodReq)
+
+    // clock 必须是数字
+    const badClock = await H.put(`clock/${host.uid}`, { foo: 1 })
+    ok('clock 写对象被拒（400）', badClock.status === 400, badClock)
+    const goodClock = await H.put(`clock/${host.uid}`, sv)
+    ok('clock 写时间戳（会被换成数字）通过', goodClock.status === 200 && typeof goodClock.json === 'number', goodClock)
+  } finally {
+    BASE = prevBase
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
+/** 第 16 组：房主接管窗口（TAKEOVER_MIN） */
+async function testTakeover() {
+  console.log('\n16) 房主接管窗口')
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-takeover-'))
+  const srv = await startServer({ PARTY_KEY: KEY, DATA_DIR: dataDir, TAKEOVER_MIN: '1' })
+  const prevBase = BASE
+  BASE = srv.base
+  try {
+    const a = await auth.signUp()
+    const b = await auth.signUp()
+    const A = { idToken: a.json.idToken, uid: a.json.localId }
+    const B = { idToken: b.json.idToken, uid: b.json.localId }
+    const HA = db(A)
+    const HB = db(B)
+    const code = 'D-TAKE1'
+
+    const created = await HA.putIfUnchanged(
+      `rooms/${code}`,
+      { host: A.uid, hostName: 'A', protocol: 3, createdAt: sv, members: { [A.uid]: { name: 'A', lastSeen: sv } } },
+      '"null_etag"',
+    )
+    ok('建房成功', created.status === 200, created)
+
+    // 房主心跳还新鲜时，别人不能接管（用真实 ETag，排除 412 干扰）
+    const tag = (await HA.getWithEtag(`rooms/${code}`)).etag
+    const early = await HB.putIfUnchanged(
+      `rooms/${code}`,
+      { host: B.uid, hostName: 'B', protocol: 3, createdAt: Date.now(), members: { [B.uid]: { name: 'B', lastSeen: Date.now() } } },
+      tag,
+    )
+    ok('房主心跳新鲜时不能接管（403）', early.status === 403, early)
+
+    // 把房主心跳改成 3 分钟前（TAKEOVER_MIN=1，已算废弃）
+    const stale = await HA.patch(`rooms/${code}/members/${A.uid}`, { lastSeen: Date.now() - 3 * 60_000 })
+    ok('把房主心跳改成 3 分钟前', stale.status === 200, stale)
+
+    const tag2 = (await HA.getWithEtag(`rooms/${code}`)).etag
+    const taken = await HB.putIfUnchanged(
+      `rooms/${code}`,
+      { host: B.uid, hostName: 'B', protocol: 3, createdAt: Date.now(), members: { [B.uid]: { name: 'B', lastSeen: Date.now() } } },
+      tag2,
+    )
+    ok('废弃后可以被接管（200）', taken.status === 200, taken)
+    const after = await HB.get(`rooms/${code}`)
+    ok('接管后 host 变成新主人', after.json?.host === B.uid, after)
+  } finally {
+    BASE = prevBase
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+
+  // 默认窗口（10 分钟，跟作者规则一致）下，房主静默 3 分钟不该被接管
+  const dataDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-takeover2-'))
+  const srv2 = await startServer({ PARTY_KEY: KEY, DATA_DIR: dataDir2 })
+  BASE = srv2.base
+  try {
+    const a = await auth.signUp()
+    const b = await auth.signUp()
+    const A = { idToken: a.json.idToken, uid: a.json.localId }
+    const B = { idToken: b.json.idToken, uid: b.json.localId }
+    const HA = db(A)
+    const HB = db(B)
+    const code = 'D-TAKE2'
+    await HA.putIfUnchanged(
+      `rooms/${code}`,
+      { host: A.uid, hostName: 'A', protocol: 3, createdAt: sv, members: { [A.uid]: { name: 'A', lastSeen: sv } } },
+      '"null_etag"',
+    )
+    await HA.patch(`rooms/${code}/members/${A.uid}`, { lastSeen: Date.now() - 3 * 60_000 })
+    const tag = (await HA.getWithEtag(`rooms/${code}`)).etag
+    const denied = await HB.putIfUnchanged(
+      `rooms/${code}`,
+      { host: B.uid, hostName: 'B', protocol: 3, createdAt: Date.now(), members: { [B.uid]: { name: 'B', lastSeen: Date.now() } } },
+      tag,
+    )
+    ok('默认 10 分钟窗口下，静默 3 分钟仍不能被接管（403）', denied.status === 403, denied)
+  } finally {
+    BASE = prevBase
+    try {
+      srv2.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir2, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
 main()
   .then(testPartyKey)
   .then(testAutoKey)
+  .then(testOpsAndGuards)
+  .then(testRulesParity)
+  .then(testTakeover)
   .then(() => {
     console.log(`\n全部通过：${passed} 项`)
     cleanup()

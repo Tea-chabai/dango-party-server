@@ -352,6 +352,19 @@ QUIET=1 node server.mjs                          # 只打启动信息
 
 # 公网部署推荐：口令 + 公网地址，启动时就生成好玩家配置
 PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
+
+# 配额与运维
+MAX_ROOMS=500 RATE_SIGNUP=60 node server.mjs     # 房间上限 / 每分钟登录次数（0 = 不限）
+TAKEOVER_MIN=10 node server.mjs                  # 房主多少分钟没心跳算废弃、可被接管（默认 10，同作者规则）
+ADMIN_TOKEN=adm-xxxx node server.mjs             # 固定运维口令（不设则自动生成 data/admintoken.txt）
+```
+
+运维接口（玩家客户端用不到；口令用 `Authorization: Bearer <口令>` 或 `?token=<口令>`）：
+
+```bash
+curl -H "Authorization: Bearer $ADMIN" http://127.0.0.1:8787/admin/rooms   # 列房间
+curl -X DELETE "http://127.0.0.1:8787/admin/rooms/D-ABCDE?token=$ADMIN"    # 强制关房
+curl -H "Authorization: Bearer $ADMIN" http://127.0.0.1:8787/admin/stats   # 统计
 ```
 
 关于 apiKey（客户端配置里的 `apiKey` = 服务端口令）：
