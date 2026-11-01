@@ -330,6 +330,62 @@ relayUrl=https://party.example.com
 如果只是禁 80/443、但允许 **8443** 之类的端口，还可以：域名 + DNS-01 签证书（签发不占 80）+
 `TLS_CERT` 起在 8443，客户端填 `https://party.example.com:8443`；Cloudflare 橙云也能回源 8443。
 
+## 2.11 EasyTier 中继节点（给客户端「EasyTier 模式」用）
+
+客户端里选「EasyTier 一键组网」时，需要一个**中继节点**帮玩家互相发现（P2P 打洞失败时还要转发）。
+本项目**不内置任何公共节点**，只用你自建的，所以这一节是给腐竹看的「怎么搭」。
+
+> 注意：中继节点只负责**组网**（EasyTier 的 11010 端口），**不是**同步服务本身。
+> 同步服务仍然是上面的 `node server.mjs`（8787 / 443），两者互不替代。
+
+### 前置条件
+
+| 项 | 要求 |
+| --- | --- |
+| 机器 | 一台**常开**的机器，有**公网可达地址**（公网 IP，或做了端口转发 / 有固定内网映射） |
+| 端口 | 放行 **UDP 11010** 和 **TCP 11010** 入站（EasyTier 默认端口） |
+| 系统 | Linux / Windows / macOS 都行；公共节点模式**不需要 root**（Linux 上加 `sudo` 也行，不影响） |
+| 带宽 | 每个房间的同步流量约几 KB/s（心跳 30 秒一次、状态几 KB），CPU 几乎为 0；按房间数线性估算 |
+| 软件 | [EasyTier Releases](https://github.com/EasyTier/EasyTier/releases) 里的 `easytier-core`（LGPL-3.0） |
+
+### 启动（三种强度，推荐第二种）
+
+```bash
+# 1) 最简：无参数即公共节点（任何人都能拿它中继，不推荐长期挂）
+easytier-core
+
+# 2) 推荐：只服务你自己的网络（网络名 + 密钥必须和客户端一致）
+easytier-core --private-mode true --network-name dango-<随机串> --network-secret <强密钥>
+
+# 3) 或者：帮别人建 P2P、但不转发别人的流量
+easytier-core --relay-network-whitelist --relay-all-peer-rpc
+```
+
+Windows 上用同一个 exe（管理员 PowerShell 执行；首次会装 WinTun 驱动）：
+
+```powershell
+easytier-core --private-mode true --network-name dango-xxxx --network-secret 换成强密钥
+New-NetFirewallRule -DisplayName "EasyTier 11010" -Direction Inbound -Protocol UDP -LocalPort 11010 -Action Allow
+New-NetFirewallRule -DisplayName "EasyTier 11010 tcp" -Direction Inbound -Protocol TCP -LocalPort 11010 -Action Allow
+```
+
+### 校验
+
+```bash
+easytier-cli node      # 本机网络状态，能看到 peer/relay 说明连通
+easytier-cli peer      # 已连上的对端
+```
+
+客户端那边把中继填成 `tcp://<这台机器的公网IP>:11010`（或只填 IP，端口默认 11010）。
+如果客户端和这台中继不在同一网络、又打洞失败，请确认公网 11010/UDP 真的能进来（NAT 后要做端口转发）。
+
+### 安全
+
+- 流量端到端加密（`network-secret`），中继看不到内容，但能看到连接的元数据（谁连了谁、流量大小）；
+- 用 `--private-mode true`，否则会替陌生人的网络转发流量；
+- 密钥别用 `abc` 这类弱值，客户端里也要填同一个。
+
+
 内网（没有公网入口）另外两条：
 
 - **Tailscale Funnel**：见 2.7，完全不开端口，玩家也不需要装 Tailscale；

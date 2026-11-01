@@ -65,10 +65,14 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 | **Tailscale Funnel** | 不要 | 自动 | 不要 | `https://<机器>.<tailnet>.ts.net` |
 | **Cloudflare Tunnel** | 要 | 自动 | 不要 | `https://party.example.com` |
 | **Cloudflare 橙云** | 要 | 自动 | 80/443（或 8443） | `https://party.example.com` |
+| **EasyTier 中继**（配合客户端 EasyTier 模式） | 要（11010） | 不需要 | UDP/TCP 11010 | 客户端填 `tcp://<中继IP>:11010` |
 
 **完整的服务器命令、每种方案对应的客户端 `firebase.properties` 原文、注意事项**
-都在 **[docs/DEPLOY.md](docs/DEPLOY.md)**（2.1 ~ 2.10 节，可整段复制）。
+都在 **[docs/DEPLOY.md](docs/DEPLOY.md)**（2.1 ~ 2.11 节，可整段复制）。
 最省事的 **Tailscale Funnel** 因为最常用，完整走法在下面单独写了一节。
+
+> **EasyTier 中继**（2.11）只负责**组网**，不提供同步接口——同步服务仍然是本项目的 `node server.mjs`。
+> 客户端里的「EasyTier 模式」会连你自建的中继；**本项目不内置任何公共节点**，玩家留空就只能局域网直连。
 
 > **一个入站端口都不能开？** 那就只剩三条：**Tailscale Funnel**（最推荐，纯出站）、
 > **Cloudflare Tunnel**（要域名，纯出站）、**Firebase**（连服务器都不用）。
