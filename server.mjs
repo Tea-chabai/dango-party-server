@@ -576,6 +576,31 @@ function validateWrite(a, value, uid, isPatch = false) {
     if (value.by !== undefined && value.by !== null && value.by !== uid) return 'req.by 必须是自己的 uid'
     return null
   }
+  if (rest[0] === 'stream') {
+    // 房主发布的播放直链（会员歌曲共享）：只校验形状，不校验内容是否真能播
+    const err = checkFields(value, {
+      url: 2048,
+      source: 16,
+      key: 64,
+      by: 128,
+      at: 'number',
+      expiresAt: 'number',
+      trial: 'boolean',
+      gain: 'number',
+      peak: 'number',
+    })
+    if (err) return err
+    if (typeof value.url !== 'string' || value.url.length < 8) return 'stream.url 看起来不是链接'
+    if (!/^https?:\/\//.test(value.url)) return 'stream.url 必须是 http(s) 链接'
+    if (value.by !== undefined && value.by !== null && value.by !== uid) return 'stream.by 必须是自己的 uid'
+    return null
+  }
+  if (rest[0] === 'streamAsk') {
+    const err = checkFields(value, { key: 64, by: 128, at: 'number' })
+    if (err) return err
+    if (value.by !== undefined && value.by !== null && value.by !== uid) return 'streamAsk.by 必须是自己的 uid'
+    return null
+  }
   if (rest[0] === 'memberControl') return typeof value === 'boolean' ? null : 'memberControl 必须是布尔值'
   return null
 }
@@ -693,7 +718,11 @@ function allowedWrite(uid, a) {
     if (room.memberControl !== true) return false
     return typeof room.members === 'object' && room.members !== null && Object.prototype.hasOwnProperty.call(room.members, uid)
   }
-  if (rest[0] === 'state' || rest[0] === 'memberControl') return room.host === uid
+  if (rest[0] === 'state' || rest[0] === 'memberControl' || rest[0] === 'stream') return room.host === uid
+  if (rest[0] === 'streamAsk') {
+    // 「补链接」请求：房间成员都能发（房主没会员时，让有会员的成员补一条直链）
+    return typeof room.members === 'object' && room.members !== null && Object.prototype.hasOwnProperty.call(room.members, uid)
+  }
   return false
 }
 

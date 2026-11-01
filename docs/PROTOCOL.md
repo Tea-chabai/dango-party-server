@@ -169,6 +169,33 @@ rooms/D-ABCDE
 
 `clock/{uid}` 存一个数字，只用于开场时的时钟校准。
 
+### 扩展节点：`stream` / `streamAsk`（共享播放直链）
+
+作者现有规则里没有，本项目先加上，用来让「有会员的房主」把直链共享给房间里的无会员玩家：
+
+```
+rooms/{code}/stream                     只有房主可写
+├── url:       "https://m801.music.126.net/…"   直链（自带签名，不需 Cookie）
+├── source:    "netease"
+├── key:       "386538"                         歌曲标识，防串歌
+├── by:        "<房主 uid>"
+├── at / expiresAt: <服务器时间>                 直链一般 20~25 分钟过期
+├── trial:     false                            只发布完整版
+└── gain / peak: 0.0                            可选，ReplayGain
+
+rooms/{code}/streamAsk               任何房间成员可写
+├── key:  "386538"                    想要哪首歌的直链（房主没会员时用）
+├── by:   "<uid>"
+└── at:   <服务器时间>
+```
+
+实测（2026-11 网易云）：VIP 歌曲的直链**不需要 Cookie、不校验 Referer/UA、可重复下载**，
+令牌里带 ~25 分钟后的时间戳；而不带 Cookie 调接口时返回的 `url` 是空的、公开外链返回的是
+`text/html` 错误页 —— 所以「无会员成员」在没有 `stream` 时根本放不出 VIP 歌，这个扩展的价值就在这里。
+
+> 走作者的 Firebase 前必须先在他的 `database.rules.json` 里加 `stream` / `streamAsk` 子树
+> （`$other: false` 会拒绝未知字段）；自建服务端已经支持（见 [RULES.md](RULES.md)）。
+
 ## 7. 客户端调用序列
 
 | 时机 | 调用 |

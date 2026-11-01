@@ -583,6 +583,17 @@ async function testRulesParity() {
     ok('clock 写对象被拒（400）', badClock.status === 400, badClock)
     const goodClock = await H.put(`clock/${host.uid}`, sv)
     ok('clock 写时间戳（会被换成数字）通过', goodClock.status === 200 && typeof goodClock.json === 'number', goodClock)
+
+    // 一起听：房主发布直链、成员请求补链接
+    const stream = { url: 'https://m801.music.126.net/x/y.mp3', source: 'netease', key: '386538', by: host.uid, at: sv, expiresAt: Date.now() + 900000, trial: false }
+    const pub = await H.put(`rooms/${code}/stream`, stream)
+    ok('房主能发布 stream', pub.status === 200, pub)
+    const pubByMember = await M.put(`rooms/${code}/stream`, stream)
+    ok('成员不能发布 stream（403）', pubByMember.status === 403, pubByMember)
+    const ask = await M.put(`rooms/${code}/streamAsk`, { key: '386538', by: member.uid, at: sv })
+    ok('成员能发 streamAsk', ask.status === 200, ask)
+    const badUrl = await H.put(`rooms/${code}/stream`, { url: 'not-a-url', by: host.uid })
+    ok('非 http(s) 的 stream.url 被拒（400）', badUrl.status === 400, badUrl)
   } finally {
     BASE = prevBase
     try {

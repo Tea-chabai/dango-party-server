@@ -52,6 +52,21 @@ DangoMusic 仓库里的 `database.rules.json` 是作者给 Firebase 写的安全
 | 歌曲字段长度/类型 | 与 `state` 同一套 | ✅ |
 | `$other: false` | 放行未知字段 | ⚠️ 见下 |
 
+## rooms/{code}/stream 与 streamAsk（本项目新增，作者规则里还没有）
+
+给「一起听歌」加「共享播放直链」用的两个节点（会员歌曲可以让房间里的无会员玩家也听到完整版）：
+
+| 节点 | 谁能写 | 字段与校验 |
+| --- | --- | --- |
+| `stream` | 只有房主 | `url`（≤2048，必须 http(s)）、`source` ≤16、`key` ≤64、`by`（=自己的 uid）、`at`/`expiresAt` 数字、`trial` 布尔、`gain`/`peak` 数字 |
+| `streamAsk` | 任何房间成员 | `key` ≤64、`by`（=自己的 uid）、`at` 数字 |
+
+用法：房主拿到完整版直链后写 `stream`；成员看到 `stream` 为空/过期时可以用 `streamAsk` 请求补链接，有能力的成员再写 `stream`
+（本项目服务端允许成员写 `streamAsk`，但 `stream` 仍限房主，避免互相覆盖）。
+
+⚠️ 这两个节点**不在作者仓库的 `database.rules.json` 里**。走作者的 Firebase 时，必须先在规则里加对应子树
+（`$other: false` 会拒绝未知字段），否则房主写入会 `PERMISSION_DENIED`；自建服务端已经支持。
+
 ## clock/{uid}
 
 | Firebase 规则 | 本项目实现 | 状态 |
