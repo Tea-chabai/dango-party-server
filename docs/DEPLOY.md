@@ -355,6 +355,7 @@ PUBLIC_URL=https://party.example.com PARTY_KEY=dango-xxxx node server.mjs
 
 # 配额与运维
 MAX_ROOMS=500 RATE_SIGNUP=60 node server.mjs     # 房间上限 / 每分钟登录次数（0 = 不限）
+TAKEOVER_MIN=5 node server.mjs                   # 房主多少分钟没心跳算废弃、可被接管（默认 5）
 ADMIN_TOKEN=adm-xxxx node server.mjs             # 固定运维口令（不设则自动生成 data/admintoken.txt）
 ```
 

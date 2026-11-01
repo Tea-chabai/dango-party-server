@@ -65,6 +65,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
              不设则自动生成存 data/admintoken.txt，设 none 关闭
   MAX_ROOMS  房间上限（默认 500）
   RATE_SIGNUP 每分钟登录次数上限（默认 60，0 = 不限）
+  TAKEOVER_MIN 房主多少分钟没心跳算废弃、可被接管（默认 5；客户端自己写死 11 分钟）
   QUIET=1    只打印启动信息，不打印每次读写
 
 接口（给 Dango Music 客户端用，等价于 Firebase 实时数据库的一小部分）:
@@ -239,7 +240,13 @@ const RELAY_HEADER = 'X-Dango-Relay'
 /** SSE 心跳：客户端读超时 70 秒，原版 Firebase 每 30 秒发一次 */
 const KEEPALIVE_MS = 25_000
 /** 房主超过这么久没心跳，房间算废弃，可以被别人接管（和作者线上的规则一致） */
-const ABANDONED_MS = 10 * 60_000
+/**
+ * 房主多久没心跳算「废弃」，可以被别人接管同一个房间码。
+ * 注意：客户端自己写死了 11 分钟（ListenParty.ABANDONED_MS），而且只在 create() 换码/join() 时才用；
+ * 所以这里改小只影响服务端的写权限判定（自定义客户端、脚本），不会让正常客户端更早接管。
+ */
+const TAKEOVER_MIN = Math.max(1, Number(process.env.TAKEOVER_MIN ?? 5))
+const ABANDONED_MS = TAKEOVER_MIN * 60_000
 /** 房间彻底没人后多久从内存里清掉 */
 const ROOM_TTL_MS = 60 * 60_000
 /** 单次写入的 JSON 上限（房间状态本来就是几 KB 的元数据） */
@@ -1088,7 +1095,7 @@ server.listen(PORT, HOST, () => {
   } else {
     log('  运维接口已关闭（ADMIN_TOKEN=none）')
   }
-  log(`  限速：登录 ${RATE_SIGNUP_PER_MIN || '不限'}/分钟；房间上限 ${MAX_ROOMS}`)
+  log(`  限速：登录 ${RATE_SIGNUP_PER_MIN || '不限'}/分钟；房间上限 ${MAX_ROOMS}；房主接管窗口 ${TAKEOVER_MIN} 分钟`)
   const cfgUrl = PUBLIC_URL || (TLS ? `${scheme}://127.0.0.1:${actual}` : '')
   const sample = writeSampleConfig(cfgUrl)
   if (sample.file) {

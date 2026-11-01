@@ -594,11 +594,68 @@ async function testRulesParity() {
   }
 }
 
+/** 第 16 组：房主接管窗口（TAKEOVER_MIN） */
+async function testTakeover() {
+  console.log('\n16) 房主接管窗口')
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dango-party-takeover-'))
+  const srv = await startServer({ PARTY_KEY: KEY, DATA_DIR: dataDir, TAKEOVER_MIN: '1' })
+  const prevBase = BASE
+  BASE = srv.base
+  try {
+    const a = await auth.signUp()
+    const b = await auth.signUp()
+    const A = { idToken: a.json.idToken, uid: a.json.localId }
+    const B = { idToken: b.json.idToken, uid: b.json.localId }
+    const HA = db(A)
+    const HB = db(B)
+    const code = 'D-TAKE1'
+
+    const created = await HA.putIfUnchanged(
+      `rooms/${code}`,
+      { host: A.uid, hostName: 'A', protocol: 3, createdAt: sv, members: { [A.uid]: { name: 'A', lastSeen: sv } } },
+      '"null_etag"',
+    )
+    ok('建房成功', created.status === 200, created)
+
+    // 房主心跳还新鲜时，别人不能接管（用真实 ETag，排除 412 干扰）
+    const tag = (await HA.getWithEtag(`rooms/${code}`)).etag
+    const early = await HB.putIfUnchanged(
+      `rooms/${code}`,
+      { host: B.uid, hostName: 'B', protocol: 3, createdAt: Date.now(), members: { [B.uid]: { name: 'B', lastSeen: Date.now() } } },
+      tag,
+    )
+    ok('房主心跳新鲜时不能接管（403）', early.status === 403, early)
+
+    // 把房主心跳改成 3 分钟前（TAKEOVER_MIN=1，已算废弃）
+    const stale = await HA.patch(`rooms/${code}/members/${A.uid}`, { lastSeen: Date.now() - 3 * 60_000 })
+    ok('把房主心跳改成 3 分钟前', stale.status === 200, stale)
+
+    const tag2 = (await HA.getWithEtag(`rooms/${code}`)).etag
+    const taken = await HB.putIfUnchanged(
+      `rooms/${code}`,
+      { host: B.uid, hostName: 'B', protocol: 3, createdAt: Date.now(), members: { [B.uid]: { name: 'B', lastSeen: Date.now() } } },
+      tag2,
+    )
+    ok('废弃后可以被接管（200）', taken.status === 200, taken)
+    const after = await HB.get(`rooms/${code}`)
+    ok('接管后 host 变成新主人', after.json?.host === B.uid, after)
+  } finally {
+    BASE = prevBase
+    try {
+      srv.child.kill('SIGTERM')
+    } catch {}
+    try {
+      fs.rmSync(dataDir, { recursive: true, force: true })
+    } catch {}
+  }
+}
+
 main()
   .then(testPartyKey)
   .then(testAutoKey)
   .then(testOpsAndGuards)
   .then(testRulesParity)
+  .then(testTakeover)
   .then(() => {
     console.log(`\n全部通过：${passed} 项`)
     cleanup()
