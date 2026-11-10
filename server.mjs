@@ -321,6 +321,35 @@ function isPrefix(a, b) {
   return true
 }
 
+/** 心跳日志：只写文件，不刷控制台；文件超过 5 MB 自动滚一份 .1 */
+const HEARTBEAT_LOG = path.join(DATA_DIR, 'heartbeat.log')
+const HEARTBEAT_MAX = 5 * 1024 * 1024
+
+/** 是不是「成员心跳」这种无信息量的写：rooms/<码>/members/<uid> 且只带 lastSeen */
+function isHeartbeatWrite(a, value) {
+  if (!Array.isArray(a) || a.length !== 4) return false
+  if (a[0] !== 'rooms' || a[2] !== 'members') return false
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = Object.keys(value)
+  return keys.length === 1 && keys[0] === 'lastSeen'
+}
+
+function logHeartbeat(op, a, uid) {
+  try {
+    const st = fs.existsSync(HEARTBEAT_LOG) ? fs.statSync(HEARTBEAT_LOG) : null
+    if (st && st.size > HEARTBEAT_MAX) fs.renameSync(HEARTBEAT_LOG, HEARTBEAT_LOG + '.1')
+    fs.appendFileSync(HEARTBEAT_LOG, `${new Date().toISOString()} ${op} ${logPath(a)} by ${uid.slice(0, 8)}\n`)
+  } catch {
+    /* 写文件失败不影响服务 */
+  }
+}
+
+/** 写操作的日志：心跳只落文件，其它照旧打控制台 */
+function logWrite(op, a, value, uid) {
+  if (isHeartbeatWrite(a, value)) return logHeartbeat(op, a, uid)
+  log(op, logPath(a), 'by', uid.slice(0, 8))
+}
+
 function logPath(a) {
   return keyOf(a) || '/'
 }
@@ -1014,7 +1043,7 @@ const handler = async (req, res) => {
         scheduleSave()
         STATS.writes++
         code = 200
-        log('put', logPath(a), 'by', uid.slice(0, 8))
+        logWrite('put', a, value, uid)
         return sendJson(res, 200, value, { ETag: etagOf(a) })
       }
 
@@ -1034,7 +1063,7 @@ const handler = async (req, res) => {
         scheduleSave()
         STATS.writes++
         code = 200
-        log('patch', logPath(a), 'by', uid.slice(0, 8))
+        logWrite('patch', a, patch, uid)
         return sendJson(res, 200, getNode(a) ?? null, { ETag: etagOf(a) })
       }
 
@@ -1054,7 +1083,9 @@ const handler = async (req, res) => {
     }
     log('error', req.method, p, e.message)
   } finally {
-    log(`[${code}] ${req.method} ${p}${q.get('auth') ? '' : ''} ${now() - started}ms`)
+    if (!(req.method === 'PATCH' && /^\/db\/rooms\/[^/]+\/members\/[^/]+\.json$/.test(p))) {
+    log(`[${code}] ${req.method} ${p} ${now() - started}ms`)
+  }
   }
 }
 

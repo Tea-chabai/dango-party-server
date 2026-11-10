@@ -348,6 +348,19 @@ DangoMusic 的同步层是抽象的（`PartyTransport`），默认实现是个�
 
 服务器不校验 `apiKey`（客户端只是把它拼进 URL），所以**服务端不需要跟着客户端升级**。
 
+## 日志
+
+控制台只打「有信息量」的行：登录、建房、加入、状态变更、关房、被拒绝的请求。
+
+**成员心跳不再刷屏**——`PATCH rooms/<码>/members/<uid>`（只带 `lastSeen`）不会出现在控制台，
+而是追加到 `data/heartbeat.log`（超过 5 MB 自动滚一份 `.1`）：
+
+```text
+2026-11-10T18:20:40.838Z patch /rooms/D-T1/members/5f79be4d… by 5f79be4d
+```
+
+想临时看心跳：`Get-Content data\heartbeat.log -Tail 20`（Windows）/ `tail -f data/heartbeat.log`。
+
 ## 运维接口（服主用）
 
 服务端自带三个运维接口，玩家客户端用不到：
