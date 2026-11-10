@@ -63,6 +63,7 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 | **Caddy 反代** | 要 | 自动 | 80 / 443 | `https://party.example.com` |
 | **Nginx 反代** | 要 | 自备 | 80 / 443 | `https://party.example.com` |
 | **Nginx 非标准端口 + 泛域名证书**（2.6b） | 要 | 自备（如 `*.nyaneko.org`） | 例如 7716/8787 | `https://music.nyaneko.org:8787` |
+| **Cloudflare Tunnel**（2.12，推荐） | 不要 | Cloudflare 托管域名 | 只出站 | \https://music.nyaneko.org\ |
 | **Tailscale Funnel** | 不要 | 自动 | 不要 | `https://<机器>.<tailnet>.ts.net` |
 | **Cloudflare Tunnel** | 要 | 自动 | 不要 | `https://party.example.com` |
 | **Cloudflare 橙云** | 要 | 自动 | 80/443（或 8443） | `https://party.example.com` |
@@ -414,11 +415,11 @@ MIT（见 [LICENSE](LICENSE)）。
 
 ```properties
 apiKey=dango-DR58anJowkCP
-databaseUrl=https://music.nyaneko.org:8787
-relayUrl=https://music.nyaneko.org:8787
+databaseUrl=https://music.nyaneko.org
+relayUrl=https://music.nyaneko.org
 ```
 
 - 放进 `<游戏目录>/config/dangomusic/firebase.properties`，重启游戏即可；
-- `relayUrl` 带端口是合法的（客户端允许 `https://主机[:端口]`）；
+- 走 Cloudflare Tunnel，**没有开放任何入站端口**，你连 `443` 都不需要能通；
 - 这台机器我自己也在用，**随时可能维护或下线**，别当生产环境；
 - 它就是一个普通的本项目实例，没有账号体系（匿名 uid + 共享口令），请不要在上面做坏事。

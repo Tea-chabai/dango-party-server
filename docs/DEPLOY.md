@@ -588,3 +588,59 @@ PUBLIC_URL=https://your-domain-or-ts.net node server.mjs
 - **别公开分发服务器地址**：没有账号体系，知道地址就能连。
 - **分清「端口没监听」和「端口被封」**：外网连端口立刻 `Connection refused`（ECONNREFUSED）说明主机可达、
   只是没有程序监听，改配置/启动服务即可；如果是**超时**或握手到一半卡住，才是防火墙 / 安全组 / 运营商在拦。
+
+## 2.12 Cloudflare Tunnel（不开任何入站端口，推荐用自家域名）
+
+适合「服务商不让开 443 / 不想暴露 IP / 想要 Cloudflare 的 DDoS 防护」。
+
+**源站一个端口都不用开**，cloudflared 是**出站**连接：
+
+```
+客户端 → Cloudflare 边缘(443) → 隧道 → 127.0.0.1:8789
+```
+
+1) 后端只绑回环（同 2.6b 第 1 步）：
+
+```powershell
+cd C:\AstrBot\dango-party-server
+$env:HOST='127.0.0.1'; $env:PORT='8789'; node server.mjs
+```
+
+2) 在 Cloudflare 后台建隧道并拿到 token（Zero Trust → Networks → Tunnels → Create），
+   在 VM 上装成服务：
+
+```powershell
+cloudflared.exe service install <TUNNEL_TOKEN>
+Get-Service Cloudflared
+```
+
+3) 同一个页面加 Public Hostname：
+
+| 字段 | 值 |
+|---|---|
+| Subdomain | `music` |
+| Domain | `nyaneko.org` |
+| Service | `HTTP` → `127.0.0.1:8789` |
+
+保存后 Cloudflare 会**自动建一条指向 `<隧道ID>.cfargotunnel.com` 的 CNAME（橙色云）**。
+如果那里已经有一条同名 A 记录，先删掉它，否则会继续按 A 记录回源并返回 521。
+
+4) 客户端配置（注意**不带端口**）：
+
+```properties
+apiKey=dango-xxxxxxxx
+databaseUrl=https://music.nyaneko.org
+relayUrl=https://music.nyaneko.org
+```
+
+5) 验收：
+
+```powershell
+curl.exe -4 -sS https://music.nyaneko.org/healthz
+```
+
+> 常见坑：
+> - **521** = Cloudflare 还在往源站 IP 回源（A 记录没换成 CNAME）；
+> - **超时** = 本机网络到 Cloudflare 的 IPv6 链路不通，用 `curl -4` 验证；隧道本身没问题；
+> - 隧道 token 只能装隧道，**改 ingress / DNS 需要 API Token 或后台操作**。
+
