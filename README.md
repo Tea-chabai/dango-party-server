@@ -350,6 +350,9 @@ DangoMusic 的同步层是抽象的（`PartyTransport`），默认实现是个�
 
 ## 日志
 
+> 换机器（含 Windows → Debian 12）的完整步骤见 **[docs/MIGRATE.md](docs/MIGRATE.md)**。
+
+
 控制台只打「有信息量」的行：登录、建房、加入、状态变更、关房、被拒绝的请求。
 
 **以下请求不再刷屏**（其余照常打印）：
