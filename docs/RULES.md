@@ -30,6 +30,7 @@ DangoMusic 仓库里的 `database.rules.json` 是作者给 Firebase 写的安全
 | `$uid.length <= 128` | 超长 → 400 | ✅ |
 | `newData.hasChildren(['lastSeen'])` | PUT/PATCH 合并后缺 `lastSeen` → 400 | ✅ |
 | `name` ≤ 64、`lastSeen` 是数字 | 类型 + 长度校验 | ✅ |
+| `failedTrack`（1.7.5 新增：成员放不了哪首歌） | 字符串 ≤ 64，可缺省 | ✅ |
 | `$other: false` | 放行未知字段 | ⚠️ 见下 |
 
 ## rooms/{code}/state

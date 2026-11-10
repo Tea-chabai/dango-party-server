@@ -530,7 +530,7 @@ function validateWrite(a, value, uid, isPatch = false) {
   if (rest[0] === 'members') {
     if (rest.length < 2) return '缺少成员 uid'
     if (rest[1].length > 128) return '成员 uid 太长'
-    const err = checkFields(value, { name: 64, lastSeen: 'number' })
+    const err = checkFields(value, { name: 64, lastSeen: 'number', failedTrack: 64 })
     if (err) return err
     // 规则：newData.hasChildren(['lastSeen'])（PATCH 时看合并后的结果）
     const merged = isPatch ? { ...(getNode(a) || {}), ...value } : value

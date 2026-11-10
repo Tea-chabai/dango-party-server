@@ -6,7 +6,7 @@ Dango Music 的「一起听歌」本来用 Firebase 实时数据库（RTDB）同
 所以只要把 `relayUrl` 指向一个「看起来像 Firebase」的服务，客户端一行代码都不用改。
 本项目的 `server.mjs` 就是这样一个服务：实现了客户端真正用到的那些调用，不多不少。
 
-> 本文档按客户端 1.7.0 的 `Firebase.kt` / `FirebaseEndpoints.kt` / `PartyHttp.kt` / `ListenParty.kt`
+> 本文档按客户端 **1.7.5** 的 `Firebase.kt` / `FirebaseEndpoints.kt` / `PartyHttp.kt` / `ListenParty.kt`
 > 的实际行为整理，用于说明本服务器在兼容什么。改客户端时请以客户端代码为准。
 
 ## 1. 地址与请求格式
@@ -152,7 +152,7 @@ rooms/D-ABCDE
 ├── memberControl: true         是否允许成员切歌
 ├── createdAt: <服务器时间>
 ├── members
-│   └── "<uid>": { name: "玩家名", lastSeen: <服务器时间> }
+│   └── "<uid>": { name: "玩家名", lastSeen: <服务器时间>, failedTrack: ""（1.7.5 起，可缺省） }
 ├── state                       房主当前播放的歌
 │   ├── source: "netease" | "qq" | "kugou"
 │   ├── trackId / nativeId / mediaId / albumId
@@ -228,6 +228,7 @@ rooms/{code}/streamAsk               任何房间成员可写
 | `state.artists` / `req.artists` | ≤ 2048 字符 |
 | `cover` | ≤ 4096 字符 |
 | `trackId` / `duration` / `pos` / `at` / `lastSeen` / `createdAt` / `protocol` | 数字 |
+| `members.{uid}.failedTrack` | 字符串 ≤ 64（1.7.5 起：成员放不了哪首歌，房主可据此跳过） |
 | `playing` / `memberControl` | 布尔 |
 | 单次写入整体 | ≤ 32 KB |
 

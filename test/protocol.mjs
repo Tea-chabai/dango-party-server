@@ -572,6 +572,11 @@ async function testRulesParity() {
     const joined = await M.put(`rooms/${code}/members/${member.uid}`, { name: '成员', lastSeen: sv })
     ok('带 lastSeen 能加入', joined.status === 200, joined)
 
+    const withFailed = await M.patch(`rooms/${code}/members/${member.uid}`, { failedTrack: '386538' })
+    ok('成员能写 failedTrack（1.7.5 新增）', withFailed.status === 200, withFailed)
+    const badFailed = await M.patch(`rooms/${code}/members/${member.uid}`, { failedTrack: 'x'.repeat(80) })
+    ok('failedTrack 超长被拒（400）', badFailed.status === 400, badFailed)
+
     // req.by 必须是自己的 uid
     const badBy = await M.put(`rooms/${code}/req`, { id: 'r1', by: host.uid, byName: '成员', op: 'next', pos: 0, at: sv })
     ok('req.by 不是自己被拒（400）', badBy.status === 400, badBy)
