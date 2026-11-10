@@ -62,6 +62,7 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 | **Node 自带 TLS + 域名证书** | 要 | acme / certbot | 80 或 DNS | `https://party.example.com:8443` |
 | **Caddy 反代** | 要 | 自动 | 80 / 443 | `https://party.example.com` |
 | **Nginx 反代** | 要 | 自备 | 80 / 443 | `https://party.example.com` |
+| **Nginx 非标准端口 + 泛域名证书**（2.6b） | 要 | 自备（如 `*.nyaneko.org`） | 例如 7716/8787 | `https://music.nyaneko.org:8787` |
 | **Tailscale Funnel** | 不要 | 自动 | 不要 | `https://<机器>.<tailnet>.ts.net` |
 | **Cloudflare Tunnel** | 要 | 自动 | 不要 | `https://party.example.com` |
 | **Cloudflare 橙云** | 要 | 自动 | 80/443（或 8443） | `https://party.example.com` |
@@ -69,6 +70,7 @@ Windows 上也可以直接双击 `启动服务器.bat`（关闭窗口即停止�
 
 **完整的服务器命令、每种方案对应的客户端 `firebase.properties` 原文、注意事项**
 都在 **[docs/DEPLOY.md](docs/DEPLOY.md)**（2.1 ~ 2.11 节，可整段复制）。
+现成的 nginx 站点样例：[examples/nginx-music.conf](examples/nginx-music.conf)（非标准端口 + 泛域名证书，2.6b）。
 最省事的 **Tailscale Funnel** 因为最常用，完整走法在下面单独写了一节。
 
 > **EasyTier 中继**（2.11）只负责**组网**，不提供同步接口——同步服务仍然是本项目的 `node server.mjs`。

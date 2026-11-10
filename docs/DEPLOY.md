@@ -232,6 +232,102 @@ relayUrl=https://party.example.com
 
 ---
 
+## 2.6b 非标准端口 + 自有通配证书（实例：Windows + 已有 nginx）
+
+> 场景：服务器上已经有 nginx 在跑别的站点，证书是**泛域名**（如 `*.nyaneko.org`），
+> 公网只转发了少数几个端口（例如 7716/8787），不想再动防火墙。
+> 这个实例就是 `https://music.nyaneko.org:8787` 接 DangoMusic 后端。
+
+### 1) 后端只监听回环
+
+Node 不要暴露到公网，交给 nginx：
+
+```powershell
+cd C:\AstrBot\dango-party-server
+$env:HOST='127.0.0.1'; $env:PORT='8789'; node server.mjs
+```
+
+想开机自启（Windows 计划任务）：
+
+```powershell
+# run.bat 里写：cd /d C:\AstrBot\dango-party-server && set HOST=127.0.0.1 && set PORT=8789 && node server.mjs
+schtasks /create /tn "DangoParty" /tr "C:\AstrBot\dango-party-server\run.bat" /sc onstart /ru SYSTEM /rl HIGHEST /f
+schtasks /run /tn "DangoParty"
+```
+
+### 2) nginx 站点配置
+
+放到 `conf/conf.d/music.nyaneko.org.conf`（`nginx.conf` 里 `include conf.d/*.conf` 即可）：
+
+```nginx
+# HTTP：只做跳转 + 给证书续期留路径
+server {
+    listen      7716;
+    server_name music.nyaneko.org;
+    location /.well-known/acme-challenge/ { root C:/nginx/html; default_type text/plain; }
+    location / { return 301 https://$host:8787$request_uri; }
+}
+
+# HTTPS：反代到本机 8789
+server {
+    listen      8787 ssl;
+    http2       on;
+    server_name music.nyaneko.org;
+
+    ssl_certificate     C:/nginx/ssl/nyaneko.org.pem;   # 泛域名证书即可覆盖 music.*
+    ssl_certificate_key C:/nginx/ssl/nyaneko.org.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+
+    access_log C:/nginx/logs/music.access.log main;
+    error_log  C:/nginx/logs/music.error.log  warn;
+
+    # 一起听歌关键：SSE 长连接，必须关缓冲
+    proxy_http_version 1.1;
+    proxy_set_header   Connection        "";
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_buffering    off;
+    proxy_cache        off;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+    proxy_connect_timeout 10s;
+    client_max_body_size 64k;
+
+    location / { proxy_pass http://127.0.0.1:8789; }
+}
+```
+
+```powershell
+cd C:\nginx
+.\nginx.exe -t
+Restart-Service nginx        # 或者 nginx -s reload（若权限够）
+```
+
+### 3) 客户端配置
+
+```properties
+apiKey=dango-xxxxxxxxxxxx          # 服务器 data/apikey.txt
+databaseUrl=https://music.nyaneko.org:8787
+relayUrl=https://music.nyaneko.org:8787
+```
+
+`relayUrl` 带端口也合法（客户端允许 `https://主机[:端口]`）。
+
+### 4) 验收
+
+```powershell
+curl.exe -sS https://music.nyaneko.org:8787/healthz     # 期望 {"ok":true,...}
+curl.exe -sS -o NUL -w "%{http_code}`n" https://music.nyaneko.org:8787/ui
+```
+
+TLS 校验要过（`ssl_verify_result=0`）；如果 502，多半是后端端口没起或 `proxy_pass` 写错。
+
+> 想要不带端口的 `https://music.nyaneko.org`，需要在**入站侧**把公网 443 转发到这台机器的 443，
+> 然后把上面第二个 server 的 `listen 8787 ssl` 改成 `listen 443 ssl`（证书不用换）。
+
 ## 2.7 Tailscale Funnel（零证书、零端口、不用域名）
 
 **完整步骤（准备 / Windows·Linux 命令 / 验证 / 排错）写在 README 的
