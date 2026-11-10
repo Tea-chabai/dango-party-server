@@ -405,3 +405,20 @@ MIT（见 [LICENSE](LICENSE)）。
 - DangoMusic、相关名称与素材的版权归其作者 [Sorihiko](https://github.com/Sorihiko) 所有。
 - 自建服务器没有账号体系，**请只在自己的小圈子里用**；不要公开分发服务器地址，也不要把
   `data/secret` 提交到仓库。
+
+---
+
+## 附：一个可以直接用的公共实例
+
+感谢你看到这里。如果你财力或技术不足、暂时不想自己搭，可以直接用我维护的这一台：
+
+```properties
+apiKey=dango-DR58anJowkCP
+databaseUrl=https://music.nyaneko.org:8787
+relayUrl=https://music.nyaneko.org:8787
+```
+
+- 放进 `<游戏目录>/config/dangomusic/firebase.properties`，重启游戏即可；
+- `relayUrl` 带端口是合法的（客户端允许 `https://主机[:端口]`）；
+- 这台机器我自己也在用，**随时可能维护或下线**，别当生产环境；
+- 它就是一个普通的本项目实例，没有账号体系（匿名 uid + 共享口令），请不要在上面做坏事。
