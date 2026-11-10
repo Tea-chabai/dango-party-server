@@ -316,6 +316,7 @@ DangoMusic 的同步层是抽象的（`PartyTransport`），默认实现是个�
 
 | 接口 | 作用 |
 | --- | --- |
+| `GET /ui` | **浏览器控制台**：房间列表、成员、当前歌曲、统计，可直接关房/踢人（口令在 `data/admintoken.txt`，页面里填一次存在浏览器） |
 | `GET /admin/rooms` | 列出所有房间（房间码、房主、成员、当前歌、存活时长） |
 | `DELETE /admin/rooms/<码>` | 强制关房（等同房主点 `Close room`，在线成员会收到关闭推送） |
 | `GET /admin/stats` | 版本、协议版本、房间数、在线监听、登录/写入/拒绝计数 |

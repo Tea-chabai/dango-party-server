@@ -92,6 +92,17 @@ const DATA_FILE = path.join(DATA_DIR, 'party.json')
 const SECRET_FILE = path.join(DATA_DIR, 'secret')
 const QUIET = process.env.QUIET === '1'
 
+/** 运维控制台页面（和 server.mjs 放在一起；改了直接刷新页面就生效） */
+const UI_FILE = path.join(HERE, 'ui.html')
+
+function readUiHtml() {
+  try {
+    return fs.readFileSync(UI_FILE, 'utf8')
+  } catch {
+    return '<!doctype html><meta charset="utf-8"><p>找不到 ui.html，请把它和 server.mjs 放在同一目录。</p>'
+  }
+}
+
 /**
  * 共享口令（客户端 firebase.properties 里的 apiKey 必须和它一致）。
  *   不设 PARTY_KEY      → 自动生成一个随机口令，存在 data/apikey.txt，重启复用（方便直接分发）
@@ -797,6 +808,18 @@ const handler = async (req, res) => {
     }
 
     // ------------------------------------------------------- 运维接口（玩家用不到）
+    // ------------------------------------------------------- 运维控制台（浏览器打开 /ui）
+    if (p === '/ui' || p === '/ui/') {
+      if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      })
+      res.end(readUiHtml())
+      return
+    }
+
     if (p === '/admin/rooms' || p === '/admin/stats' || p.startsWith('/admin/rooms/')) {
       if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
       const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
@@ -818,6 +841,20 @@ const handler = async (req, res) => {
         })
         return
       }
+      const km = p.match(/^\/admin\/rooms\/([^/]+)\/members\/([^/]+)$/)
+      if (km) {
+        if (req.method !== 'DELETE') return fail(res, 405, 'method not allowed')
+        const kc = decodeURIComponent(km[1])
+        const ku = decodeURIComponent(km[2])
+        if (getNode(['rooms', kc, 'members', ku]) === undefined) return fail(res, 404, 'member not found')
+        setAt(['rooms', kc, 'members', ku], undefined)
+        bump(['rooms', kc, 'members', ku])
+        broadcast('put', ['rooms', kc, 'members', ku], null)
+        scheduleSave()
+        log('admin kicked', ku.slice(0, 8), 'from', kc)
+        return sendJson(res, 200, { ok: true, kicked: ku })
+      }
+
       const m = p.match(/^\/admin\/rooms(?:\/(.+))?$/)
       const target = m && m[1] ? decodeURIComponent(m[1]) : ''
       if (!target) {

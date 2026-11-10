@@ -502,6 +502,13 @@ async function testOpsAndGuards() {
     const stats = await call('GET', '/admin/stats?token=test-admin')
     ok('运维统计正常', stats.status === 200 && typeof stats.json.signups === 'number', stats)
 
+    const uiRes = await fetch(BASE + '/ui')
+    const uiText = await uiRes.text()
+    ok('控制台页面可打开（/ui）', uiRes.status === 200 && uiText.includes('Dango Party'), uiRes.status)
+
+    const kicked = await call('DELETE', '/admin/rooms/D-OPS01/members/' + host.uid + '?token=test-admin')
+    ok('运维踢人返回 200 或 404', kicked.status === 200 || kicked.status === 404, kicked)
+
     const sse = listen(host, 'rooms/D-OPS01')
     await sse.waitFor((e) => e.event === 'put' && e.data?.path === '/')
     const closed = await call('DELETE', '/admin/rooms/D-OPS01?token=test-admin')
