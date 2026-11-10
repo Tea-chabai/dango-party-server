@@ -352,7 +352,12 @@ DangoMusic 的同步层是抽象的（`PartyTransport`），默认实现是个�
 
 控制台只打「有信息量」的行：登录、建房、加入、状态变更、关房、被拒绝的请求。
 
-**成员心跳不再刷屏**——`PATCH rooms/<码>/members/<uid>`（只带 `lastSeen`）不会出现在控制台，
+**以下请求不再刷屏**（其余照常打印）：
+- 成员心跳：`PATCH rooms/<码>/members/<uid>`（只带 `lastSeen`）→ 写入 `data/heartbeat.log`；
+- WebUI 轮询：`GET /admin/rooms`、`GET /admin/stats`（页面每 2 秒一次）；
+- 探活：`GET /healthz`。
+
+心跳写文件的细节：
 而是追加到 `data/heartbeat.log`（超过 5 MB 自动滚一份 `.1`）：
 
 ```text
