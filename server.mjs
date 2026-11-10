@@ -1146,12 +1146,14 @@ server.listen(PORT, HOST, () => {
   log(`Dango party server listening on ${scheme}://${HOST}:${actual}`)
   log('  /id/v1/accounts:signUp  /token/v1/token  /db/<path>.json')
   log('  data: ' + DATA_FILE)
+  log('')
   if (TLS) {
     log('  TLS: ' + TLS_CERT)
     log(`  客户端 relayUrl 填 ${scheme}://<域名或 IP>:${actual}`)
   } else {
     log('  明文 http：本机测试可以；要给别的玩家用，请配 TLS_CERT/TLS_KEY 或放在 HTTPS 反代后面')
   }
+  log('')
   if (PARTY_KEY) {
     log('  apiKey: ' + PARTY_KEY + '   （客户端 firebase.properties 里的 apiKey 必须和它一致）')
     log('          已存在 ' + APIKEY_FILE + '，删掉它即可换新口令')
@@ -1164,6 +1166,7 @@ server.listen(PORT, HOST, () => {
   } else {
     log('  运维接口已关闭（ADMIN_TOKEN=none）')
   }
+  log('')
   log(`  限速：登录 ${RATE_SIGNUP_PER_MIN || '不限'}/分钟；房间上限 ${MAX_ROOMS}；房主接管窗口 ${TAKEOVER_MIN} 分钟`)
   const cfgUrl = PUBLIC_URL || (TLS ? `${scheme}://127.0.0.1:${actual}` : '')
   const sample = writeSampleConfig(cfgUrl)

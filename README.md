@@ -26,6 +26,41 @@ git clone https://github.com/<you>/dango-party-server.git
 cd dango-party-server
 
 node server.mjs          # 默认 http://127.0.0.1:8787
+
+启动后你会看到大概这样（`run.bat` 双开即用）：
+
+```text
+============================================================
+
+    Dango Music · 一起听歌 · 自建服务器
+
+============================================================
+
+    Node 版本      v24.16.0
+    监听地址       http://127.0.0.1:8787
+    自检地址       http://127.0.0.1:8787/healthz
+
+    换端口         先 set PORT=9000，再运行本脚本
+    停止服务       关闭这个窗口，或者按 Ctrl+C
+
+------------------------------------------------------------
+
+    下面会打印 apiKey、运维口令、配置文件位置
+
+------------------------------------------------------------
+
+17:31:29 loaded 1 room(s) from E:\git\dango-party-server\data\party.json
+17:31:29 Dango party server listening on http://127.0.0.1:8787
+17:31:29   /id/v1/accounts:signUp  /token/v1/token  /db/<path>.json
+17:31:29   data: E:\git\dango-party-server\data\party.json
+17:31:29   明文 http：本机测试可以；要给别的玩家用，请配 TLS_CERT/TLS_KEY 或放在 HTTPS 反代后面
+17:31:29   apiKey: dango-XXXXXXXXXXXX   （客户端 firebase.properties 里的 apiKey 必须和它一致）
+17:31:29   运维口令: adm-XXXXXXXXXXXX   （GET /admin/rooms、DELETE /admin/rooms/<码>、GET /admin/stats）
+17:31:29   限速：登录 60/分钟；房间上限 500；房主接管窗口 10 分钟
+17:31:29   样例配置已生成：...\data\firebase.properties.example
+```
+
+看到 `apiKey` 和 `运维口令` 就先截图/复制存好，后面配客户端和管理页面都要用。
 npm test                 # 协议测试：自己拉起服务器，跑完自动关掉
 ```
 
