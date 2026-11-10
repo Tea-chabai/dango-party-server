@@ -8,6 +8,11 @@
 
 ---
 
+> **注意 `sudo: command not found`**
+> 精简版 Debian 镜像常常不预装 `sudo`。如果你执行 `whoami` 得到 `root`，
+> 说明你已经是最高权限，把下面所有命令的 `sudo ` 前缀去掉即可；
+> 想继续用 sudo 就 `apt update && apt install -y sudo`。
+
 ## 1. 装 Node（≥18）
 
 Debian 12 自带 Node 18，够用：
