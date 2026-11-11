@@ -12,7 +12,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `/etc/systemd/system/dango-party-restart.service` | oneshot，执行 `systemctl restart dango-party.service` |
+| `/etc/systemd/system/dango-party-restart.service` | 先 `dango-logs clean --yes` 清日志，再 `systemctl restart dango-party.service` |
 | `/etc/systemd/system/dango-party-restart.timer` | `OnCalendar=*-*-01 04:00:00`，`Persistent=true`（错过会在开机后补一次） |
 
 常用命令：
@@ -60,7 +60,9 @@ dango-logs purge        # 删除所有备份（不影响当前日志）
 - 用 `truncate -s 0` **原地清空**，systemd 的追加句柄和 Node 的写入不会失效（不需要重启服务）；
 - 备份只保留最近 **5 份**，更旧的自动删除。
 
-建议节奏：看着 `dango-logs` 输出，超过 5 MB 就 `clean` 一次；或者跟每月重启一起做（重启前清一次）。
+建议节奏：看着 `dango-logs` 输出，超过 5 MB 就 `clean` 一次。
+
+**每月 1 号的重启会自动先执行一次 `dango-logs clean --yes`**（备份 + 清空），所以正常情况下不用手动清理；手动命令用于「月中日志异常变大」时的临时处理。
 
 ---
 
