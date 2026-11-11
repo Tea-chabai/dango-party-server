@@ -29,6 +29,7 @@
 | 从 Windows 迁到 Debian 12 | [docs/MIGRATE.md](docs/MIGRATE.md) |
 | 定期重启、日志清理 | [docs/MAINTENANCE.md](docs/MAINTENANCE.md) |
 | 协议细节 / 权限规则 | [docs/PROTOCOL.md](docs/PROTOCOL.md) · [docs/RULES.md](docs/RULES.md) |
+| 和 MusicParty / mpsync 有什么区别 | [docs/COMPARISON.md](docs/COMPARISON.md) |
 
 
 ## 快速开始
