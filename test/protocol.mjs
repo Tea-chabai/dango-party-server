@@ -509,6 +509,13 @@ async function testOpsAndGuards() {
     const kicked = await call('DELETE', '/admin/rooms/D-OPS01/members/' + host.uid + '?token=test-admin')
     ok('运维踢人返回 200 或 404', kicked.status === 200 || kicked.status === 404, kicked)
 
+    const logsRes = await call('GET', '/admin/logs?file=heartbeat&token=test-admin')
+    ok('运维日志接口可读（heartbeat）', logsRes.status === 200 && typeof logsRes.json.offset === 'number', logsRes)
+    const logsBad = await call('GET', '/admin/logs?file=nope&token=test-admin')
+    ok('未知日志文件返回 400', logsBad.status === 400, logsBad)
+    const logsNoAuth = await fetch(BASE + '/admin/logs?file=heartbeat')
+    ok('日志接口无口令被拒', logsNoAuth.status === 401 || logsNoAuth.status === 403, logsNoAuth.status)
+
     const sse = listen(host, 'rooms/D-OPS01')
     await sse.waitFor((e) => e.event === 'put' && e.data?.path === '/')
     const closed = await call('DELETE', '/admin/rooms/D-OPS01?token=test-admin')

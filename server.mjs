@@ -344,6 +344,41 @@ function logHeartbeat(op, a, uid) {
   }
 }
 
+/** WebUI 能看的两个日志文件：app=应用日志，heartbeat=成员心跳 */
+function logFileFor(which) {
+  if (which === 'heartbeat') return path.join(DATA_DIR, 'heartbeat.log')
+  if (which === 'app') {
+    if (process.env.LOG_FILE) return process.env.LOG_FILE
+    return process.platform === 'win32'
+      ? path.join(DATA_DIR, 'server.log')
+      : '/var/log/dango-party.log'
+  }
+  return null
+}
+
+/** 读日志尾部或增量：offset 为空取最后 maxBytes，否则从 offset 往后读 */
+function readLogChunk(file, offset, maxBytes) {
+  let st
+  try {
+    st = fs.statSync(file)
+  } catch {
+    return { missing: true, text: '', offset: 0, size: 0 }
+  }
+  const size = st.size
+  let start = offset == null ? Math.max(0, size - maxBytes) : Math.min(offset, size)
+  let len = size - start
+  if (len > maxBytes) len = maxBytes
+  if (len <= 0) return { text: '', offset: start, size, truncated: start > 0 }
+  const fd = fs.openSync(file, 'r')
+  try {
+    const buf = Buffer.alloc(len)
+    fs.readSync(fd, buf, 0, len, start)
+    return { text: buf.toString('utf8'), offset: start + len, size, truncated: start > 0 }
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 /** 写操作的日志：心跳只落文件，其它照旧打控制台 */
 function logWrite(op, a, value, uid) {
   if (isHeartbeatWrite(a, value)) return logHeartbeat(op, a, uid)
@@ -849,7 +884,7 @@ const handler = async (req, res) => {
       return
     }
 
-    if (p === '/admin/rooms' || p === '/admin/stats' || p.startsWith('/admin/rooms/')) {
+    if (p === '/admin/rooms' || p === '/admin/stats' || p === '/admin/logs' || p.startsWith('/admin/rooms/')) {
       if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
       const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
       const token = bearer || q.get('token') || ''
@@ -870,6 +905,27 @@ const handler = async (req, res) => {
         })
         return
       }
+      // 日志查看：GET /admin/logs?file=app|heartbeat&offset=<字节>
+      if (p === '/admin/logs') {
+        if (req.method !== 'GET') return fail(res, 405, 'method not allowed')
+        const which = (q.get('file') || 'app').toLowerCase()
+        const file = logFileFor(which)
+        if (!file) return fail(res, 400, 'file must be app or heartbeat')
+        const rawOffset = q.get('offset')
+        const offset = rawOffset == null || rawOffset === '' ? null : Math.max(0, Number(rawOffset) || 0)
+        const max = Math.min(256 * 1024, Math.max(1024, Number(q.get('max')) || 64 * 1024))
+        const chunk = readLogChunk(file, offset, max)
+        return sendJson(res, 200, {
+          file: which,
+          path: file,
+          size: chunk.size,
+          offset: chunk.offset,
+          missing: !!chunk.missing,
+          truncated: !!chunk.truncated,
+          chunk: chunk.text,
+        })
+      }
+
       const km = p.match(/^\/admin\/rooms\/([^/]+)\/members\/([^/]+)$/)
       if (km) {
         if (req.method !== 'DELETE') return fail(res, 405, 'method not allowed')
