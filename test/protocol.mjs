@@ -509,6 +509,14 @@ async function testOpsAndGuards() {
     const kicked = await call('DELETE', '/admin/rooms/D-OPS01/members/' + host.uid + '?token=test-admin')
     ok('运维踢人返回 200 或 404', kicked.status === 200 || kicked.status === 404, kicked)
 
+    const pcfg = await call('GET', '/admin/player-config?token=test-admin')
+    ok('玩家配置接口可读', pcfg.status === 200 && typeof pcfg.json.text === 'string', pcfg)
+    ok('配置文本含 apiKey 与 databaseUrl',
+      (pcfg.json.text || '').includes('apiKey=') && (pcfg.json.text || '').includes('databaseUrl=https://'),
+      pcfg.json.text)
+    const pcfgNoAuth = await fetch(BASE + '/admin/player-config')
+    ok('玩家配置无口令被拒', pcfgNoAuth.status === 401 || pcfgNoAuth.status === 403, pcfgNoAuth.status)
+
     const dash = await call('GET', '/admin/dashboard?token=test-admin')
     ok('运维仪表盘一次返回房间+统计', dash.status === 200 && !!dash.json.stats && Array.isArray(dash.json.rooms), dash)
 

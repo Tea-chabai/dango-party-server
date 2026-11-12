@@ -88,6 +88,7 @@
     <nav id="nav">
       <a data-page="overview" class="active"><span class="ico">▤</span>概览</a>
       <a data-page="rooms"><span class="ico">♬</span>房间</a>
+      <a data-page="config"><span class="ico">⇩</span>玩家配置</a>
       <a data-page="logs"><span class="ico">≡</span>日志</a>
       <a data-page="settings"><span class="ico">⚙</span>设置</a>
     </nav>
@@ -126,6 +127,23 @@
           <tbody id="rooms"></tbody>
         </table>
         <div id="empty" class="empty" hidden>还没有房间。客户端建房后会出现在这里。</div>
+      </section>
+
+      <section id="page-config" class="page">
+        <div class="section-title">发给玩家</div>
+        <div class="panel-box">
+          <div class="kv" id="cfgInfo"></div>
+          <div class="hint foot-note">放到 <code>&lt;游戏目录&gt;/config/dangomusic/firebase.properties</code>，重启游戏生效。</div>
+        </div>
+
+        <div class="section-title">文件内容</div>
+        <pre class="panel-box mono" id="cfgText" style="margin:0;white-space:pre-wrap;font-size:12.5px;color:#c9cad3">加载中…</pre>
+
+        <div class="row" style="margin-top:10px">
+          <button id="cfgCopy">复制</button>
+          <button id="cfgDownload">下载 firebase.properties</button>
+          <button id="cfgReload" class="ghost">重新生成</button>
+        </div>
       </section>
 
       <section id="page-logs" class="page">
@@ -194,7 +212,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&am
 let token = localStorage.getItem('dangoToken') || '';
 $('token').value = token;
 
-const TITLES = { overview: '概览', rooms: '房间', logs: '日志', settings: '设置' };
+const TITLES = { overview: '概览', rooms: '房间', config: '玩家配置', logs: '日志', settings: '设置' };
 let page = 'overview';
 function go(next) {
   page = next;
@@ -203,6 +221,7 @@ function go(next) {
   $('pagetitle').textContent = TITLES[next] || next;
   if (next === 'logs') refreshLogs(true);
   if (next === 'overview' || next === 'rooms') refreshRooms();
+  if (next === 'config') refreshConfig();
 }
 $('nav').addEventListener('click', (e) => {
   const a = e.target.closest('a[data-page]');
@@ -316,6 +335,55 @@ document.addEventListener('click', async (ev) => {
   }
   refreshRooms();
 });
+
+/* ---------------- 玩家配置 ---------------- */
+let cfgData = null;
+
+async function refreshConfig() {
+  if (!token) { $('cfgText').textContent = '需要先在「设置」里填入运维口令'; return; }
+  try {
+    const d = await api('/admin/player-config');
+    cfgData = d;
+    $('cfgText').textContent = d.text;
+    $('cfgInfo').innerHTML = [
+      ['访问地址', esc(d.base)],
+      ['apiKey', '<code>' + esc(d.apiKey) + '</code>'],
+      ['文件名', esc(d.filename)],
+    ].map(([k, v]) => '<div class="k">' + k + '</div><div>' + v + '</div>').join('');
+  } catch (e) {
+    $('cfgText').textContent = '读取失败：' + e.message;
+  }
+}
+
+$('cfgReload').onclick = () => refreshConfig();
+
+$('cfgCopy').onclick = async () => {
+  if (!cfgData) return;
+  try {
+    await navigator.clipboard.writeText(cfgData.text);
+    $('cfgCopy').textContent = '已复制';
+    setTimeout(() => { $('cfgCopy').textContent = '复制'; }, 1500);
+  } catch {
+    const r = document.createRange();
+    r.selectNodeContents($('cfgText'));
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    document.execCommand('copy');
+    $('cfgCopy').textContent = '已复制';
+    setTimeout(() => { $('cfgCopy').textContent = '复制'; }, 1500);
+  }
+};
+
+$('cfgDownload').onclick = () => {
+  if (!cfgData) return;
+  const blob = new Blob([cfgData.text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = cfgData.filename || 'firebase.properties';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
 
 /* ---------------- 日志 ---------------- */
 const MAX_LINES = 2000;

@@ -912,7 +912,7 @@ const handler = async (req, res) => {
       }))
     }
 
-    if (p === '/admin/rooms' || p === '/admin/stats' || p === '/admin/logs' || p === '/admin/dashboard' || p.startsWith('/admin/rooms/')) {
+    if (p === '/admin/rooms' || p === '/admin/stats' || p === '/admin/logs' || p === '/admin/dashboard' || p === '/admin/player-config' || p.startsWith('/admin/rooms/')) {
       if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
       const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
       const token = bearer || q.get('token') || ''
@@ -946,6 +946,30 @@ const handler = async (req, res) => {
             ...STATS,
           },
           rooms: adminRoomList(),
+        })
+      }
+
+      // 玩家配置：生成 firebase.properties（apiKey + 当前访问域名）
+      if (p === '/admin/player-config') {
+        if (req.method !== 'GET') return fail(res, 405, 'method not allowed')
+        const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+        const host = rawHost.split(',')[0].trim().split(':')[0]
+        const base = host ? 'https://' + host : 'https://your-domain.example'
+        const text = [
+          '#### Dango Music 一起听歌（自建服务器）',
+          '#### 放到 <游戏目录>/config/dangomusic/firebase.properties',
+          '#### 下方 apiKey 必须与服务器一致；换域名或换 key 后需要重新分发',
+          'apiKey=' + (PARTY_KEY || ''),
+          'databaseUrl=' + base,
+          'relayUrl=' + base,
+          '',
+        ].join('\n')
+        return sendJson(res, 200, {
+          ok: true,
+          apiKey: PARTY_KEY || '',
+          base,
+          filename: 'firebase.properties',
+          text,
         })
       }
 
