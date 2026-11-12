@@ -1287,7 +1287,7 @@ server.listen(PORT, HOST, () => {
     log('  apiKey 校验已关闭（PARTY_KEY=none）：谁都能匿名登录，只适合本机测试')
   }
   if (ADMIN_TOKEN) {
-    log('  运维口令: ' + ADMIN_TOKEN + '   （GET /admin/rooms、DELETE /admin/rooms/<码>、GET /admin/stats）')
+    log('  运维口令: ' + ADMIN_TOKEN + '   （WebUI GET /ui；数据走 /admin/*）')
     log('          用 Authorization: Bearer <口令> 或 ?token=<口令>；存在 ' + ADMIN_FILE)
   } else {
     log('  运维接口已关闭（ADMIN_TOKEN=none）')
