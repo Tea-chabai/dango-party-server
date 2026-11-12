@@ -509,6 +509,9 @@ async function testOpsAndGuards() {
     const kicked = await call('DELETE', '/admin/rooms/D-OPS01/members/' + host.uid + '?token=test-admin')
     ok('运维踢人返回 200 或 404', kicked.status === 200 || kicked.status === 404, kicked)
 
+    const dash = await call('GET', '/admin/dashboard?token=test-admin')
+    ok('运维仪表盘一次返回房间+统计', dash.status === 200 && !!dash.json.stats && Array.isArray(dash.json.rooms), dash)
+
     const logsRes = await call('GET', '/admin/logs?file=heartbeat&token=test-admin')
     ok('运维日志接口可读（heartbeat）', logsRes.status === 200 && typeof logsRes.json.offset === 'number', logsRes)
     const logsBad = await call('GET', '/admin/logs?file=nope&token=test-admin')

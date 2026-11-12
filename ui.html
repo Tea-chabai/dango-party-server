@@ -151,7 +151,7 @@ const fmtAge = (ms) => {
 async function refreshRooms() {
   if (!token) { setStatus('需要口令'); return; }
   try {
-    const data = await api('/admin/rooms');
+    const data = await api('/admin/dashboard');
     const rooms = data.rooms || [];
     setStatus('已连接', 'ok');
     $('empty').hidden = rooms.length > 0;
@@ -178,7 +178,7 @@ async function refreshRooms() {
         + '</tr>';
     }).join('');
 
-    const s = await api('/admin/stats');
+    const s = data.stats;
     $('stats').innerHTML = [
       ['版本', esc(s.server)],
       ['协议', esc(s.protocol)],

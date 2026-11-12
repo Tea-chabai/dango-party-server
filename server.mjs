@@ -34,6 +34,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -875,16 +876,41 @@ const handler = async (req, res) => {
     // ------------------------------------------------------- 运维控制台（浏览器打开 /ui）
     if (p === '/ui' || p === '/ui/') {
       if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
-      res.writeHead(200, {
+      const html = Buffer.from(readUiHtml(), 'utf8')
+      const ae = String(req.headers['accept-encoding'] || '')
+      const headers = {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
         'X-Content-Type-Options': 'nosniff',
-      })
-      res.end(readUiHtml())
+        Vary: 'Accept-Encoding',
+      }
+      if (/\bgzip\b/.test(ae) && html.length > 1024) {
+        const gz = zlib.gzipSync(html, { level: 6 })
+        headers['Content-Encoding'] = 'gzip'
+        res.writeHead(200, headers)
+        return res.end(gz)
+      }
+      res.writeHead(200, headers)
+      res.end(html)
       return
     }
 
-    if (p === '/admin/rooms' || p === '/admin/stats' || p === '/admin/logs' || p.startsWith('/admin/rooms/')) {
+    // 运维视图的房间列表（/admin/rooms 与 /admin/dashboard 共用）
+    function adminRoomList() {
+      const rooms = tree.root.rooms && typeof tree.root.rooms === 'object' ? tree.root.rooms : {}
+      return Object.entries(rooms).map(([code_, r]) => ({
+        code: code_,
+        host: r?.host,
+        hostName: r?.hostName,
+        protocol: r?.protocol,
+        memberControl: r?.memberControl,
+        members: Object.entries(r?.members || {}).map(([uid, mm]) => ({ uid, name: mm?.name, lastSeen: mm?.lastSeen })),
+        state: r?.state ? { name: r.state.name, playing: r.state.playing, pos: r.state.pos, at: r.state.at } : null,
+        ageMs: typeof r?.createdAt === 'number' ? now() - r.createdAt : null,
+      }))
+    }
+
+    if (p === '/admin/rooms' || p === '/admin/stats' || p === '/admin/logs' || p === '/admin/dashboard' || p.startsWith('/admin/rooms/')) {
       if (!ADMIN_TOKEN) return fail(res, 404, 'admin api disabled')
       const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
       const token = bearer || q.get('token') || ''
@@ -905,6 +931,22 @@ const handler = async (req, res) => {
         })
         return
       }
+      if (p === '/admin/dashboard') {
+        if (req.method !== 'GET') return fail(res, 405, 'method not allowed')
+        return sendJson(res, 200, {
+          ok: true,
+          stats: {
+            server: 'dango-party-server/' + VERSION,
+            protocol: PROTOCOL_VERSION,
+            uptimeSec: Math.round(process.uptime()),
+            rooms: roomCount(),
+            listeners: SUBSCRIBERS.size,
+            ...STATS,
+          },
+          rooms: adminRoomList(),
+        })
+      }
+
       // 日志查看：GET /admin/logs?file=app|heartbeat&offset=<字节>
       if (p === '/admin/logs') {
         if (req.method !== 'GET') return fail(res, 405, 'method not allowed')
@@ -944,18 +986,7 @@ const handler = async (req, res) => {
       const target = m && m[1] ? decodeURIComponent(m[1]) : ''
       if (!target) {
         if (req.method !== 'GET') return fail(res, 405, 'method not allowed')
-        const rooms = tree.root.rooms && typeof tree.root.rooms === 'object' ? tree.root.rooms : {}
-        const list = Object.entries(rooms).map(([code_, r]) => ({
-          code: code_,
-          host: r?.host,
-          hostName: r?.hostName,
-          protocol: r?.protocol,
-          memberControl: r?.memberControl,
-          members: Object.entries(r?.members || {}).map(([uid, mm]) => ({ uid, name: mm?.name, lastSeen: mm?.lastSeen })),
-          state: r?.state ? { name: r.state.name, playing: r.state.playing, pos: r.state.pos, at: r.state.at } : null,
-          ageMs: typeof r?.createdAt === 'number' ? now() - r.createdAt : null,
-        }))
-        sendJson(res, 200, { ok: true, rooms: list })
+        sendJson(res, 200, { ok: true, rooms: adminRoomList() })
         return
       }
       // 强制关掉某个房间（等同于房主点「Close room」）
