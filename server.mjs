@@ -306,7 +306,9 @@ function serverTime() {
 }
 
 const now = () => serverTime()
-const log = (...a) => { if (!QUIET) console.log(new Date().toISOString().slice(11, 19), ...a) }
+// 日志时间戳用本机时区（toISOString 是 UTC，看到的 03:12 其实是 11:12）
+const stamp = () => new Date().toLocaleTimeString('sv-SE', { hour12: false })
+const log = (...a) => { if (!QUIET) console.log(stamp(), ...a) }
 
 function seg(p) {
   return String(p).split('/').filter((s) => s.length > 0)
