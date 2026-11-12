@@ -1174,10 +1174,10 @@ const handler = async (req, res) => {
   } finally {
     // 静默的访问日志：
   //   1) 成员心跳 PATCH .../members/<uid>.json（每 25~30 秒一次）
-  //   2) /admin/*（WebUI 每 2 秒轮询一次）和 /healthz（监控探活）
+  //   2) /admin/*（WebUI 每 2 秒轮询）、/ui（静态页）和 /healthz（监控探活）
   // 运维动作（关房 / 踢人）另有显式 log，不会被吞掉
   const isHeartbeat = req.method === 'PATCH' && /^\/db\/rooms\/[^/]+\/members\/[^/]+\.json$/.test(p)
-  const isPoll = p.startsWith('/admin/') || p === '/healthz'
+  const isPoll = p.startsWith('/admin/') || p === '/healthz' || p === '/ui' || p === '/favicon.ico'
   if (!isHeartbeat && !isPoll) {
     log(`[${code}] ${req.method} ${p} ${now() - started}ms`)
   }
