@@ -30,6 +30,7 @@
 | 定期重启、日志清理 | [docs/MAINTENANCE.md](docs/MAINTENANCE.md) |
 | 协议细节 / 权限规则 | [docs/PROTOCOL.md](docs/PROTOCOL.md) · [docs/RULES.md](docs/RULES.md) |
 | 和 MusicParty / mpsync 有什么区别 | [docs/COMPARISON.md](docs/COMPARISON.md) |
+| 国内访问为什么慢、能不能优化 | [docs/PERF.md](docs/PERF.md) |
 
 
 ## 快速开始
