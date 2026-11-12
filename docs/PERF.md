@@ -12,7 +12,7 @@
 Cloudflare 边缘（104.21.88.68 / 172.67.173.163，橙云）
    │  Cloudflare Tunnel（cloudflared 出站连接到 LAX01/07/08）
    ▼
-Debian 12 源站 43.248.116.149
+Debian 12 源站 <源站IP>
    └ 127.0.0.1:8789  node server.mjs
 ```
 
@@ -73,13 +73,13 @@ HTTP/2 : 1.33 / 1.65 / 1.71 / 1.73 / 1.70 s   ← 采用，更稳
 同城 RTT 实测 13 ms，但域名 443 直连会立刻被重置：
 
 ```
-curl --resolve music.nyaneko.org:443:43.248.116.149 https://music.nyaneko.org/
+curl --resolve music.nyaneko.org:443:<源站IP> https://music.nyaneko.org/
   → Recv failure: Connection was reset          （RST）
 
-curl --resolve example.com:443:43.248.116.149 https://example.com/
+curl --resolve example.com:443:<源站IP> https://example.com/
   → 302                                          （任意其他 SNI 正常）
 
-curl  http://43.248.116.149/  -H 'Host: music.nyaneko.org'
+curl  http://<源站IP>/  -H 'Host: music.nyaneko.org'
   → 404                                          （80 端口不带 SNI，可达）
 ```
 
@@ -119,7 +119,7 @@ done
 
 # SNI 封锁验证
 curl -4 -k -sS -m 8 -o /dev/null -w '%{http_code}\n' \
-  --resolve "music.nyaneko.org:443:43.248.116.149" https://music.nyaneko.org/healthz
+  --resolve "music.nyaneko.org:443:<源站IP>" https://music.nyaneko.org/healthz
 ```
 
-> 数据采集时间：2026-11-12，源站 Debian 12 / 43.248.116.149，cloudflared 2026.10.7（http2 模式）。
+> 数据采集时间：2026-11-12，源站 Debian 12 / <源站IP>，cloudflared 2026.10.7（http2 模式）。
