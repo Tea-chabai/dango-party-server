@@ -369,7 +369,7 @@ MIT（见 [LICENSE](LICENSE)）。
 感谢你看到这里。如果你财力或技术不足、暂时不想自己搭，可以直接用我维护的这一台：
 
 ```properties
-apiKey=dango-tYgt_o5PkLpA
+apiKey=dango-DR58anJowkCP
 databaseUrl=https://music.nyaneko.org
 relayUrl=https://music.nyaneko.org
 ```
